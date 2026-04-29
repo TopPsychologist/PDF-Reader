@@ -6,8 +6,8 @@
   "scripts": {
     "start": "electron .",
     "dev": "electron .",
-    "build": "electron-builder --mac --x64",
-    "build:dir": "electron-builder --mac --x64 --dir"
+    "build": "electron-builder --mac --x64 --config electron-builder.json",
+    "build:dir": "electron-builder --mac --x64 --dir --config electron-builder.json"
   },
   "keywords": ["pdf", "reader", "electron", "mac"],
   "author": "",
@@ -18,21 +18,5 @@
   },
   "dependencies": {
     "pdfjs-dist": "^4.0.379"
-  },
-  "build": {
-    "appId": "com.pdfreader.mac",
-    "productName": "PDF Reader",
-    "mac": {
-      "target": [
-        {
-          "target": "zip",
-          "arch": ["x64"]
-        }
-      ],
-      "category": "public.app-category.productivity"
-    },
-    "directories": {
-      "output": "dist"
-    }
   }
 }

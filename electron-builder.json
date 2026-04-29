@@ -1,0 +1,16 @@
+{
+  "appId": "com.pdfreader.mac",
+  "productName": "PDF Reader",
+  "mac": {
+    "target": [
+      {
+        "target": "zip",
+        "arch": ["x64"]
+      }
+    ],
+    "category": "public.app-category.productivity"
+  },
+  "directories": {
+    "output": "dist"
+  }
+}
