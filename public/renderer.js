@@ -592,172 +592,181 @@ function renderShelf(files) {
   });
 }
 
-openBtn.addEventListener('click', () => {
-  window.electronAPI.openFileDialog();
-});
-
-shelfBtn.addEventListener('click', () => {
-  window.electronAPI.openFolderDialog();
-});
-
-backToShelfBtn.addEventListener('click', () => {
-  if (currentShelfFiles.length > 0) {
-    renderShelfWithCovers(currentShelfFiles);
+function setupEventListeners() {
+  if (typeof window.electronAPI === 'undefined') {
+    console.error('window.electronAPI is not defined');
+    return;
   }
-  showShelfView();
-});
 
-changeFolderBtn.addEventListener('click', () => {
-  window.electronAPI.openFolderDialog();
-});
+  openBtn.addEventListener('click', () => {
+    window.electronAPI.openFileDialog();
+  });
 
-prevBtn.addEventListener('click', () => {
-  goToPage(currentPage - 1);
-});
+  shelfBtn.addEventListener('click', () => {
+    window.electronAPI.openFolderDialog();
+  });
 
-nextBtn.addEventListener('click', () => {
-  goToPage(currentPage + 1);
-});
-
-pageInput.addEventListener('change', (e) => {
-  const pageNum = parseInt(e.target.value, 10);
-  if (!isNaN(pageNum)) {
-    goToPage(pageNum);
-  }
-});
-
-zoomInBtn.addEventListener('click', () => zoom('in'));
-zoomOutBtn.addEventListener('click', () => zoom('out'));
-fitWidthBtn.addEventListener('click', () => zoom('fit-width'));
-fitHeightBtn.addEventListener('click', () => zoom('fit-height'));
-
-tocBtn.addEventListener('click', () => {
-  renderToc();
-  tocSidebar.classList.toggle('active');
-  bookmarkSidebar.classList.remove('active');
-});
-
-bookmarkBtn.addEventListener('click', () => {
-  addBookmark();
-});
-
-showBookmarksBtn.addEventListener('click', () => {
-  renderBookmarks();
-  bookmarkSidebar.classList.toggle('active');
-  tocSidebar.classList.remove('active');
-});
-
-closeTocBtn.addEventListener('click', () => {
-  tocSidebar.classList.remove('active');
-});
-
-closeBookmarkBtn.addEventListener('click', () => {
-  bookmarkSidebar.classList.remove('active');
-});
-
-document.addEventListener('keydown', (e) => {
-  if (e.target.tagName === 'INPUT') return;
-  if (!pdfDoc) return;
-
-  if (e.key === 'ArrowLeft') {
-    goToPage(currentPage - 1);
-  } else if (e.key === 'ArrowRight') {
-    goToPage(currentPage + 1);
-  } else if ((e.metaKey || e.ctrlKey) && e.key === 'd') {
-    e.preventDefault();
-    addBookmark();
-  } else if ((e.metaKey || e.ctrlKey) && e.key === 'b') {
-    e.preventDefault();
+  backToShelfBtn.addEventListener('click', () => {
     if (currentShelfFiles.length > 0) {
       renderShelfWithCovers(currentShelfFiles);
     }
     showShelfView();
-  }
-});
+  });
 
-window.electronAPI.onFileOpened(async (data) => {
-  if (data) {
-    showLoading('正在读取文件...');
-    const pdfData = await window.electronAPI.readPdfFile(data.path);
-    if (pdfData) {
-      fileNameEl.textContent = data.name;
-      loadPDF(pdfData.data, data.path);
-    } else {
-      hideLoading();
-      statusText.textContent = '读取文件失败';
+  changeFolderBtn.addEventListener('click', () => {
+    window.electronAPI.openFolderDialog();
+  });
+
+  prevBtn.addEventListener('click', () => {
+    goToPage(currentPage - 1);
+  });
+
+  nextBtn.addEventListener('click', () => {
+    goToPage(currentPage + 1);
+  });
+
+  pageInput.addEventListener('change', (e) => {
+    const pageNum = parseInt(e.target.value, 10);
+    if (!isNaN(pageNum)) {
+      goToPage(pageNum);
     }
-  }
-});
+  });
 
-window.electronAPI.onFolderOpened((data) => {
-  if (data) {
-    shelfTitle.textContent = data.name;
-    renderShelfWithCovers(data.files);
+  zoomInBtn.addEventListener('click', () => zoom('in'));
+  zoomOutBtn.addEventListener('click', () => zoom('out'));
+  fitWidthBtn.addEventListener('click', () => zoom('fit-width'));
+  fitHeightBtn.addEventListener('click', () => zoom('fit-height'));
+
+  tocBtn.addEventListener('click', () => {
+    renderToc();
+    tocSidebar.classList.toggle('active');
+    bookmarkSidebar.classList.remove('active');
+  });
+
+  bookmarkBtn.addEventListener('click', () => {
+    addBookmark();
+  });
+
+  showBookmarksBtn.addEventListener('click', () => {
+    renderBookmarks();
+    bookmarkSidebar.classList.toggle('active');
+    tocSidebar.classList.remove('active');
+  });
+
+  closeTocBtn.addEventListener('click', () => {
+    tocSidebar.classList.remove('active');
+  });
+
+  closeBookmarkBtn.addEventListener('click', () => {
+    bookmarkSidebar.classList.remove('active');
+  });
+
+  document.addEventListener('keydown', (e) => {
+    if (e.target.tagName === 'INPUT') return;
+    if (!pdfDoc) return;
+
+    if (e.key === 'ArrowLeft') {
+      goToPage(currentPage - 1);
+    } else if (e.key === 'ArrowRight') {
+      goToPage(currentPage + 1);
+    } else if ((e.metaKey || e.ctrlKey) && e.key === 'd') {
+      e.preventDefault();
+      addBookmark();
+    } else if ((e.metaKey || e.ctrlKey) && e.key === 'b') {
+      e.preventDefault();
+      if (currentShelfFiles.length > 0) {
+        renderShelfWithCovers(currentShelfFiles);
+      }
+      showShelfView();
+    }
+  });
+
+  window.electronAPI.onFileOpened(async (data) => {
+    if (data) {
+      showLoading('正在读取文件...');
+      const pdfData = await window.electronAPI.readPdfFile(data.path);
+      if (pdfData) {
+        fileNameEl.textContent = data.name;
+        loadPDF(pdfData.data, data.path);
+      } else {
+        hideLoading();
+        statusText.textContent = '读取文件失败';
+      }
+    }
+  });
+
+  window.electronAPI.onFolderOpened((data) => {
+    if (data) {
+      shelfTitle.textContent = data.name;
+      renderShelfWithCovers(data.files);
+      showShelfView();
+      statusText.textContent = `书架: ${data.files.length} 个 PDF 文件`;
+    }
+  });
+
+  window.electronAPI.onZoom((direction) => {
+    zoom(direction);
+  });
+
+  window.electronAPI.onShowShelf(() => {
+    if (currentShelfFiles.length > 0) {
+      renderShelfWithCovers(currentShelfFiles);
+    }
     showShelfView();
-    statusText.textContent = `书架: ${data.files.length} 个 PDF 文件`;
-  }
-});
+  });
 
-window.electronAPI.onZoom((direction) => {
-  zoom(direction);
-});
+  window.electronAPI.onAddBookmark(() => {
+    addBookmark();
+  });
 
-window.electronAPI.onShowShelf(() => {
-  if (currentShelfFiles.length > 0) {
-    renderShelfWithCovers(currentShelfFiles);
-  }
-  showShelfView();
-});
+  dropZone.addEventListener('click', () => {
+    window.electronAPI.openFileDialog();
+  });
 
-window.electronAPI.onAddBookmark(() => {
-  addBookmark();
-});
+  dropZone.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dropZone.classList.add('drag-over');
+  });
 
-dropZone.addEventListener('click', () => {
-  window.electronAPI.openFileDialog();
-});
+  dropZone.addEventListener('dragleave', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dropZone.classList.remove('drag-over');
+  });
 
-dropZone.addEventListener('dragover', (e) => {
-  e.preventDefault();
-  e.stopPropagation();
-  dropZone.classList.add('drag-over');
-});
+  dropZone.addEventListener('drop', async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dropZone.classList.remove('drag-over');
 
-dropZone.addEventListener('dragleave', (e) => {
-  e.preventDefault();
-  e.stopPropagation();
-  dropZone.classList.remove('drag-over');
-});
-
-dropZone.addEventListener('drop', async (e) => {
-  e.preventDefault();
-  e.stopPropagation();
-  dropZone.classList.remove('drag-over');
-
-  const files = e.dataTransfer.files;
-  if (files.length > 0) {
-    const file = files[0];
-    if (file.type === 'application/pdf' || file.name.endsWith('.pdf')) {
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const arrayBuffer = event.target.result;
-        const uint8Array = new Uint8Array(arrayBuffer);
-        fileNameEl.textContent = file.name;
-        loadPDF(uint8Array);
-        statusText.textContent = '正在加载...';
-      };
-      reader.readAsArrayBuffer(file);
-    } else {
-      statusText.textContent = '请选择 PDF 文件';
+    const files = e.dataTransfer.files;
+    if (files.length > 0) {
+      const file = files[0];
+      if (file.type === 'application/pdf' || file.name.endsWith('.pdf')) {
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          const arrayBuffer = event.target.result;
+          const uint8Array = new Uint8Array(arrayBuffer);
+          fileNameEl.textContent = file.name;
+          loadPDF(uint8Array);
+          statusText.textContent = '正在加载...';
+        };
+        reader.readAsArrayBuffer(file);
+      } else {
+        statusText.textContent = '请选择 PDF 文件';
+      }
     }
-  }
-});
+  });
 
-window.addEventListener('resize', () => {
-  if (pdfDoc) {
-    renderPage(currentPage);
-  }
-  if (shelfView.classList.contains('active')) {
-    renderCoversForVisibleItems();
-  }
-});
+  window.addEventListener('resize', () => {
+    if (pdfDoc) {
+      renderPage(currentPage);
+    }
+    if (shelfView.classList.contains('active')) {
+      renderCoversForVisibleItems();
+    }
+  });
+}
+
+document.addEventListener('DOMContentLoaded', setupEventListeners);
