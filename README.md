@@ -1,59 +1,60 @@
 # PDF Reader for macOS Intel
 
-轻量级 PDF 阅读器，基于 Electron + PDF.js：单页阅读、书架、阅读书签、PDF 大纲目录、阅读进度与快捷键；深色主题界面。
+轻量级电子书阅读器（**PDF + EPUB**），基于 Electron、PDF.js 与 Epub.js：单页/分页阅读、书架、阅读书签与进度、多套界面主题（含浅色）、应用内设置；书架支持 PDF / EPUB 封面预览；开发与打包使用 **`build/icon.png`** 作为窗口与 Dock 图标。
 
 ## 功能特性
 
 ### 文件与书架
 
-- 「**打开…**」：通过系统对话框选择单个 PDF。
-- 「**书架…**」：选择文件夹作为书架，自动列出其中 PDF。
-- 书架路径持久保存，下次启动可自动恢复书架。
-- 拖拽 PDF 到窗口即可打开。
-- 支持拖拽到欢迎页的放置区。
+- 「**打开…**」：选择单个 **`pdf` / `epub`**（系统对话框过滤）。
+- 「**书架…**」：选择文件夹作为书架；自动列出其中 **PDF / EPUB**。
+- 书架路径持久保存在用户数据文件中，下次启动可自动恢复并展示书架。
+- 拖拽 **PDF / EPUB** 到窗口或欢迎区域的放置区即可打开。
+- 书架网格支持封面缩略图（PDF 首页、EPUB 封面）；同一会话内已生成的封面画布会按需跳过重复解码。
 
-### 阅读视图
+### 阅读视图（PDF）
 
-- 单页渲染；翻页（按钮、页码跳转、快捷键）。
-- **适应宽度**：整页横向适配窗口宽度，纵向可在内容区内**滚动**，查看超长页面。
-- **适应高度**、按需**放大 / 缩小**（自定义缩放比例）。
-- **高分辨率屏**：画布按设备像素比渲染，减少模糊。
-- PDF **大纲目录**与原书书签树（侧栏，与下文「阅读书签」区分）。
-- **阅读书签**：当前页添加、列表跳转、删除；状态栏可显示当前页是否已书签。
+- 单画布单页分页阅读；上一页 / 下一页按钮、当前页数值输入、`←` / `→` 快捷键。
+- **适应宽度**：整页横向适配窗口可视宽度；超长页可在 **`pdf-container` 内纵向滚动**查看。
+- **适应高度**、放大镜级 **放大 / 缩小**，以及工具栏百分比显示；**缩放比例可直接在百分比框内编辑**（输入数字或带 `%`，按 Enter 或失焦生效）。
+- **高 DPI**：画布按设备像素比放大渲染，兼顾逻辑尺寸与清晰度。
+- **PDF 大纲目录**（侧栏，与下文「阅读书签」区分）。
+- **阅读书签**：当前位置添加与列表跳转；可与 EPUB **CFI 书签**共存于同一存储结构（路径维度）。
+
+### 阅读视图（EPUB）
+
+- 使用 **esbuild 打包的 `public/vendor/epub-browser.mjs`**，在**渲染进程**通过动态 `import` 载入 Epub.js（不经 `contextBridge` 传递 Book 实例，以避免克隆破坏内部 Promise）。
+- 若直接 `file://` 载入依赖失败，会经 **主进程 `readFile` + IPC** 再走 **Blob URL** 回退。
+- 缩放以 **百分比**展示（可与 PDF 共用工具栏缩放区），范围约 **60%–220%**；同样支持 **直接编辑百分比**。
+- 目录、「我的书签」侧栏在阅读态可用。
 
 ### 性能与超大 PDF
 
-- 主进程异步读取磁盘文件（`async readFile`），减轻大文件拷贝时界面冻结感。
-- 解析阶段通过 PDF.js **`onProgress`** 显示**解析进度百分比**（数据可用时）。
-- **延后加载大纲**：先完成首页渲染并关闭遮挡层，再在后台解析目录，超大文件可先读页再出目录。
-- 阅读进度、书签加载与解析并行调度，缩短就绪时间。
-- PDF 引擎（pdfjs）按需动态加载，避免启动阶段失败拖垮整页脚本。
+- 主进程 **`fs.promises.readFile`** 异步读盘。
+- **`getDocument` onProgress**：在能提供 `loaded/total` 时更新「解析」进度文案。
+- **延后大纲**：先渲染首页并隐藏加载层，再后台解析 **`getOutline`**，降低超长文档首屏卡顿感。
+- 阅读进度与书签请求可 **`Promise.all`** 并行。
+- PDF 引擎按需 **`import`**，不阻塞首屏脚本。
 
-### 书架视图
+### 界面、主题与菜单
 
-- 网格展示、首屏封面缩略图、阅读进度百分比（若已记录）。
-- 从阅读页**返回书架**后，已生成封面**不重复解码**（同一会话内保留 DOM 与画布）。
-- 更换书架文件夹会重新扫描并刷新列表。
-
-### 界面与菜单
-
-- **书架 / 欢迎页**：工具栏仅保留「**打开**」与「**书架**」；不显示翻页与缩放等阅读控件。
-- **阅读 PDF 时**：工具栏包含「返回书架」「打开」「书架」以及完整阅读控件；底部状态栏显示**当前文件名**；在书架或未打开文件时**不显示**底部文件名。
-- **应用菜单**（节选）：文件「打开…」、书架文件夹、返回书架；视图含缩放、「**PDF 目录侧栏**」（大纲，⌘⇧T）、界面重载；「**书签**」菜单含添加阅读书签、打开书签列表侧栏（⌘⇧B）。
-- Dock / 开发与打包：**`build/icon.png`** 用作窗口与应用图标参考（参见构建说明）。
+- **主题**：午夜蓝、石墨灰、深海青、琥珀棕、日间纸本等；**设置**（工具栏齿轮）中可切换，并写入用户数据；窗口背景色随主题调整。
+- **书架 / 欢迎页**：仅显示「**打开**」「**书架**」等必要项；**`#toolbarReading`** 在阅读态才展开。
+- **应用菜单**（节选）：文件「打开…」、书架文件夹、返回书架；视图含缩放、**主题**单选子菜单、**PDF 目录侧栏**（⌘⇧T）、界面重载；书签菜单与阅读书签侧栏（⌘⇧B）。
 
 ### 其它
 
-- 阅读位置防抖保存（约 1 秒）与重新打开跳转。
-- 深色主题、`electron-builder` 打包为 `.app` / zip。
+- 阅读位置防抖保存（约 1 秒）；`electron-builder` 可打 **`.app` / zip**（x64）。
 
 ## 开发环境
 
 - **Node.js**：v18.x 或更高  
 - **npm**：v9.x 或更高  
 - **Electron**：v28.x  
-- **PDF.js**：v4.x（legacy ES 模块，`public/renderer.js` 中动态导入）  
+- **PDF.js**：v4.x（`pdfjs-dist/legacy`，渲染进程动态导入）  
+- **Epub.js**：随 `npm` 安装；**浏览器包**由 **`npm run bundle:epub`**（esbuild）生成 **`public/vendor/epub-browser.mjs`**  
 - **electron-builder**：v24.x  
+- **esbuild**：开发依赖，用于上述 EPUB 打包脚本  
 
 ## 安装依赖
 
@@ -61,23 +62,31 @@
 npm install
 ```
 
+首次克隆或升级 **epubjs** 后，建议执行一次：
+
+```bash
+npm run bundle:epub
+```
+
+以生成或更新 **`public/vendor/epub-browser.mjs`**（阅读器运行时依赖）。
+
 ## 开发运行
 
 ```bash
 npm run dev
 ```
 
-或直接：
+或：
 
 ```bash
 npm start
 ```
 
-请在图形界面环境下运行 Electron。应用图标会使用项目内 **`build/icon.png`**（若存在）。
+须在图形会话中启动 Electron。**`build/icon.png`** 存在时用作窗口图标与 Dock 图标参考。
 
 ## 构建打包
 
-配置见根目录 **`electron-builder.json`**（含 **`icon`: `build/icon.png`**）及 **`package.json`** 中的 `scripts`。
+配置见 **`electron-builder.json`**（**`icon`: `build/icon.png`**）与 **`package.json`** 的 `scripts`。
 
 ### zip
 
@@ -85,7 +94,7 @@ npm start
 npm run build
 ```
 
-输出一般在 `dist/`，文件名随版本而定（例如 `PDF Reader-1.0.0-mac.zip`）。
+产出一般在 **`dist/`**（名称随版本，例如 **`PDF Reader-1.0.0-mac.zip`**）。
 
 ### 可直接运行的 .app 目录
 
@@ -93,22 +102,24 @@ npm run build
 npm run build:dir
 ```
 
-输出通常在 `dist/mac/PDF Reader.app`。
+通常在 **`dist/mac/PDF Reader.app`**。
 
 ## 目录结构（概要）
 
 ```
 pdf-reader-mac/
 ├── src/
-│   ├── main.js          # Electron 主进程（窗口、IPC、菜单、Dock 图标）
-│   └── preload.js       # 预加载与安全桥接
+│   ├── main.js          # Electron 主进程（窗口、IPC、菜单、托盘/Dock）
+│   └── preload.js       # contextBridge：仅 IPC，不含 Epub 运行时对象
 ├── public/
 │   ├── index.html
 │   ├── styles.css
-│   └── renderer.js      # 渲染进程：PDF/UI 逻辑（ES Module）
+│   ├── renderer.js      # 渲染进程 UI / PDF / EPUB（ES Module）
+│   └── vendor/
+│       └── epub-browser.mjs   # esbuild 打好的 Epub.js（勿手改；见 bundle:epub）
 ├── build/
-│   └── icon.png         # 应用图标（electron-builder / 运行时 Dock 等）
-├── dist/                # 构建产出
+│   └── icon.png         # 应用图标（可纳入 Git；参见 .gitignore 说明）
+├── dist/                # 构建产出（不入库）
 ├── electron-builder.json
 ├── package.json
 ├── SPEC.md
@@ -120,61 +131,62 @@ pdf-reader-mac/
 | 快捷键 | 功能 |
 |--------|------|
 | ← / → | 上一页 / 下一页（焦点不在输入框时） |
-| Cmd/Ctrl + O | 打开 PDF 文件 |
+| Cmd/Ctrl + O | 打开文件（PDF / EPUB） |
 | Cmd/Ctrl + Shift + O | 选择书架文件夹 |
 | Cmd/Ctrl + B | 返回书架 |
 | Cmd/Ctrl + D | 添加阅读书签 |
-| Cmd/Ctrl + Shift + T | 显示/切换 PDF 大纲目录侧栏 |
-| Cmd/Ctrl + Shift + B | 显示/切换「我的书签」侧栏 |
+| Cmd/Ctrl + Shift + T | 显示 / 切换 PDF 大纲目录侧栏 |
+| Cmd/Ctrl + Shift + B | 显示 / 切换「我的书签」侧栏 |
 | Cmd/Ctrl + = / Cmd/Ctrl + - | 放大 / 缩小 |
 | Cmd/Ctrl + 0 | 适应页面宽度 |
 | Cmd/Ctrl + 1 | 适应窗口高度 |
 | Cmd/Ctrl + R | 重新加载渲染进程界面 |
 
+（与 **`src/main.js`** 中 **`createMenu`** 完全一致；若有差异以实现为准。）
+
 ## 使用说明
 
 ### 书架
 
-1. 点击「书架」，选择一个包含 PDF 的文件夹。  
-2. 路径会保存；下次可从菜单或上次状态进入书架网格。  
-3. 单击某书的封面卡片打开阅读。  
-4. 「更换文件夹」可重新指定书架目录。  
-5. 阅读页点击「返回书架」回到网格（同一会话下不强制重绘已有封面）。
+1. 点击「书架」，选择包含 **PDF / EPUB** 的文件夹。  
+2. 路径会保存；下次启动可恢复书架网格。  
+3. 单击某个图书条目打开阅读。  
+4. 「更换文件夹」可切换书架目录。  
+5. 阅读页可通过「返回书架」回到网格；同会话内尽量不重复解码已有封面。
 
 ### 打开单个文件
 
-点击「打开…」选择 PDF；或在欢迎页拖拽文件到指示区域。
+点击「打开…」或通过菜单选择 **PDF / EPUB**；也可将文件拖到欢迎区。
 
 ### 阅读位置与书签
 
-- 切换页码会自动保存进度（防抖），下次从书架或菜单打开同一文件会尝试恢复页码。  
-- 阅读书签在侧栏统一管理；PDF 自带的**大纲目录**在另一侧栏，二者在菜单与工具栏上已区分。
+进度与书签按文件路径保存在用户数据中；PDF 保存页码，EPUB 可保存 **CFI** 等与 Epub.js 一致的定位信息（实现以代码为准）。
 
-### 视图
+### 视图与缩放
 
-- 「适应宽度」下若一页高于可视区域，请在中间 PDF 区域**上下滚动**查看全文。  
+- 「适应宽度」下若一页高于可视区，在中间阅读区 **上下滚动** 查看全文。  
+- **工具栏缩放百分比**可点击后直接修改数字（**25%–500%**，PDF **自定义缩放**；EPUB **60%–220%**），**Enter** 或 **失焦** 后生效。
 
 ## 数据存储
 
-用户数据保存在（应用名与 `productName`/`name` 相关，以实际 `userData` 为准）：
+用户数据保存在（实际目录以 Electron **`userData`** 为准）：
 
 `~/Library/Application Support/pdf-reader-mac/pdf-reader-data.json`
 
-内包含：阅读位置、各文件阅读书签、shelfFolder 书架路径等。
+内容通常包括：**阅读位置**、各文件书签、**书架路径**、`theme`（当前主题 ID）等。
 
-## 构建与图标
+## 构建、图标与版本库
 
-- **`electron-builder.json`**：`appId`、`productName`、`icon`（指向 `build/icon.png`）、`directories.output` 等。  
-- 打包前请放置合适尺寸的 **`build/icon.png`**（常用 512×512 或更大）。  
-- 开发时 **`main.js`** 会在可用时设置 macOS Dock 图标与窗口 `icon`。
+- **`electron-builder.json`**：配置 `appId`、`productName`、`icon`（指向 **`build/icon.png`**）。  
+- 推荐放置 **不小于 512×512** 的 **`build/icon.png`**。开发时 **`main.js`** 在文件存在时使用 **Dock** 与 **BrowserWindow** 图标。  
+- **`.gitignore`** 中通用的 **`**/build/`**（来自 Python 等段）会忽略本仓库根目录的 **`build/`**；因此在 **`.gitignore` 文件末尾**增加了对 **`build/`**、**`build/icon.png`** 的否定规则，使 **`build/icon.png`** 可以被 Git 追踪。添加或更新图标后执行 **`git add build/icon.png`** 即可；若仍被忽略，可使用 **`git add -f build/icon.png`**。
 
 ## 常见问题
 
-**构建报错或目标格式**：以 `electron-builder.json` 为准；若为 `zip`/`dir` 等，勿混用陈旧 `dmg` 相关依赖。
-
-**超大 PDF 仍较慢**：已通过进度提示、延后大纲、异步读盘等缓解；全文解析仍取决于 PDF.js 与本机性能。
-
-**必须安装 Node 并重装依赖**：首次克隆后执行 `npm install`。
+- **EPUB 报「加载引擎」**：确认已 **`npm run bundle:epub`**，且 **`public/vendor/epub-browser.mjs`** 存在；若仍失败，可看终端 **`[read-epub-vendor-bundle]`** 与开发者工具控制台。  
+- **构建报错**：以 **`electron-builder.json`**、**`package.json`** 脚本为准；目标为 zip / dir。  
+- **超大 PDF**：已用进度、延后大纲、异步读盘等缓解；全量解析仍受 PDF.js 与本机性能限制。  
+- 克隆后请先 **`npm install`**，必要时 **`npm run bundle:epub`**。
 
 ## License
 

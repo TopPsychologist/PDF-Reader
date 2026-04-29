@@ -6,182 +6,161 @@
 |------|------|
 | 名称 | pdf-reader-mac |
 | 类型 | Electron 桌面应用 + 渲染进程 HTML/CSS/JS（ES Module） |
-| 核心定位 | 轻量 PDF 单页阅读、书架聚合、大纲目录与阅读书签、阅读进度记忆 |
+| 核心定位 | 轻量 **PDF / EPUB** 阅读、书架聚合、大纲与阅读书签、阅读进度与界面主题记忆 |
 | 目标平台 | macOS Intel（x64），Electron 打包为 `.app`/zip |
 
 ## 2. 技术栈
 
 | 类别 | 技术 |
 |------|------|
-| 宿主 | Electron 28.x，`BrowserWindow`，`contextIsolation + preload` |
-| PDF | PDF.js 4.x（`pdfjs-dist/legacy`，渲染进程 **`import()`** 按需加载，`GlobalWorkerOptions.workerSrc`） |
-| 打包 | electron-builder，`electron-builder.json` 配置，`build/icon.png` |
-| UI | HTML5/CSS3，`public/renderer.js` ES Module，`public/styles.css` |
-| 数据 | JSON 文件，`app.getPath('userData')` 下同应用配置目录 |
+| 宿主 | Electron 28.x，`BrowserWindow`，`contextIsolation` + preload；`webPreferences` 含 `preload`、`webSecurity`、`sandbox` 等（以 `main.js` 为准） |
+| PDF | PDF.js 4.x（`pdfjs-dist/legacy`，渲染进程 `import()`，`GlobalWorkerOptions.workerSrc`） |
+| EPUB | npm `epubjs`；运行时装载 `public/vendor/epub-browser.mjs`（`npm run bundle:epub` + esbuild）；**不在 preload 内向渲染进程传递 Epub.js `Book` 实例**，避免 contextBridge 克隆损坏；后备：主进程读 `public/vendor/epub-browser.mjs` → IPC → 渲染进程 Blob URL 动态 import |
+| 打包 | electron-builder，`electron-builder.json`，`build/icon.png` |
+| UI | HTML5/CSS3，`public/renderer.js` ES Module |
+| 数据 | JSON，`app.getPath('userData')` 下同应用目录 |
+| EPUB 工具链 | esbuild（开发依赖）：`bundle:epub` 写入 `public/vendor/epub-browser.mjs` |
 
 ### 2.1 与安全
 
-- 主进程 **`nodeIntegration: false`**，`contextBridge`** 暴露 `window.electronAPI`。  
-- 内容安全策略定义于 `public/index.html` 的 CSP 标签。
+- `nodeIntegration: false`；preload 经 `contextBridge` 暴露 `window.electronAPI`（以实现为准）；不通过桥传递 Epub 运行时对象。
+- CSP 定义于 `public/index.html`。Epub Book / Rendition 仅存在于渲染进程。
+
+### 2.2 版本库与图标资源
+
+- 顶层模板 `.gitignore` 中的 `**/build/` 会屏蔽本仓库根的 `build/` 目录。
+- 本仓库在 **`.gitignore` 末尾**增加 `!/build/`、`!build/icon.png`，使命名后的 **`build/icon.png` 可被 Git 追踪**。添加文件后执行 `git add build/icon.png`；若仍被拒可 `git add -f build/icon.png`。
 
 ## 3. 功能规格
 
 ### 3.1 文件与书架（主进程 / IPC）
 
-- [x] 打开文件对话框选择 PDF（IPC `open-file-dialog` → `dialog` → `file-opened`）。  
-- [x] 打开目录作为书架（`open-folder-dialog` → `folder-opened`，包含文件列表）。  
-- [x] 按路径 **`read-pdf-file`** 读取二进制；**推荐使用异步 `fs.promises.readFile`**，避免巨量同步读阻塞主进程。  
-- [x] 书架路径 **`shelfFolder`** 读写 `pdf-reader-data.json`。  
-- [x] 启动时若有有效 `shelfFolder`，可向渲染进程 **`folder-opened`**，自动展示书架。
+- [x] 打开文件：`pdf`、`epub`（`open-file-dialog` → `file-opened`）。
+- [x] 书架目录（`open-folder-dialog` → `folder-opened`）。
+- [x] `read-pdf-file`（与书籍二进制读取共用）。
+- [x] `shelfFolder` 持久化。
+- [x] 启动恢复书架（可选 `folder-opened`）。
+- [x] `read-epub-vendor-bundle`：主进程读出 EPUB vendor 捆绑文件供 Blob 后备。
 
-### 3.2 阅读模式（单页 + 缩放）
+### 3.2 阅读模式 — PDF（单页 + 缩放）
 
-- [x] 上一页 / 下一页按钮、当前页数值输入、`totalPages`。  
-- [x] 键盘 ← / →（输入框焦点时一般不拦截）。  
-- [x] 单画布单页 **`page.render`**；非「整卷连续滚动」，而是分页。  
-- [x] **适应宽度 / 高度**、放大镜级缩放、`fitMode` 与 **`scale`** 协同。  
-- [x] **适应宽度**：按 CSS 可视宽度缩放整页内容；若页高度超出 `pdf-container` 可视区，**纵向 `overflow: auto`** 滚动查看未被裁切的上下内容。  
-- [x] **Retina/高 DPI**：画布像素尺寸乘以 **`devicePixelRatio`**（或与 CSS 换算一致），样式宽高为逻辑像素，避免锯齿与发虚。  
+- [x] 翻页控件、当前页、`totalPages`；键盘 ← / →（输入框焦点时行为以实现为准）。
+- [x] 单页渲染；分页非整卷流式。
+- [x] 适应宽高、步进缩放、`fitMode` 与 `scale`。
+- [x] 适应宽度：可视宽度缩放；超长页在 `pdf-container` 内纵向滚动。
+- [x] 工具栏缩放为 `<input>`，可编辑百分比（Enter 或失焦提交）；PDF 自定义缩放约 **25%–500%**；适应宽度/高度显示语义为 **100%**。
+- [x] 高 DPI：`devicePixelRatio`。
 
-### 3.3 阅读位置与书签存储
+### 3.3 阅读模式 — EPUB（Epub.js）
 
-- [x] 按 **`filePath` 维度**防抖保存 **`currentPage`（约 1s）**。  
-- [x] 再次打开同一文件时 **`get-reading-position`** 恢复起始页（若记录存在且在页数范围内）。  
-- [x] 阅读书签（用户标注）：IPC `add-bookmark`、`remove-bookmark`、`get-bookmarks`；数据结构见第 6 节。
+- [x] `renderTo` 与分页流；细节以 `renderer.js` / Epub.js 为准。
+- [x] 字体缩放等与工具栏缩放输入同步（约 **60%–220%**）。
+- [x] 阅读位置可为 CFI 字符串；书签可含 `cfi`。
 
-### 3.4 「阅读书签」与「PDF 大纲目录」（产品语义）
+### 3.4 阅读位置与书签
 
-- **阅读书签**：用户添加的跳转点，独立于 PDF 原生大纲。  
-- **PDF 大纲目录**：PDF.js **`getOutline` + `parseOutline`**（异步解析书签树，目标页跳转）。  
+- [x] 按路径防抖保存；IPC `get-reading-position`、`save-reading-position`、`add/remove/get bookmarks`。
 
-#### 已实现行为
+### 3.5 阅读书签与目录（语义）
 
-- [x] `getOutline`/`parseOutline` 可在 **`loadDeferredOutline`** 中**延后**执行：先 **`renderPage`** 首屏、关闭加载层，再填充 `currentToc`，降低超大 PDF 「长时间白屏」。  
-- [x] 若用户在延后完成前切换文档，`loadDeferredOutline` 内应按 **`pdfDoc` 实例**判断是否仍有效。
+- 阅读书签与 PDF `getOutline` 解析大纲、EPUB `navigation`/自定义目录侧栏区分（实现文案见 UI）。
 
-### 3.5 书架视图
+### 3.6 书架视图
 
-- [x] 网格；点击项 **`readPdfFile`** → **`loadPDF`**.  
-- [x] 封面：首页缩略图；同一路径已成功渲染过的 **`canvas.shelf-cover-canvas`** 在 **`renderCoversForVisibleItems`** 中可**跳过**，避免同一书架会话内重复解码。  
-- [x] 阅读进度：**`get-reading-position`** 与 **`numPages`** 计算百分比（实现上可能短时二次打开文档，按需优化可作后续项）。  
-- [x] 「返回书架」**不**清空网格重绘全部封面（与「更换文件夹」「首次 `renderShelfWithCovers`」区分）。
+- [x] 网格列表；封面（PDF 首页 / EPUB 封面）；进度百分比；会话内跳过已绘封面画布。
 
-### 3.6 视图控制与快捷键
+### 3.7 快捷键与视图
 
-- [x] 菜单项通过 **`safeSend`** 向渲染进程派发 `zoom`、`toggle-toc-sidebar`、`toggle-bookmarks-sidebar`、`show-shelf`、`add-bookmark` 等。  
-- [x] 窗口缩放 **`resize`** 时重绘当前 PDF 页；书架活动时尝试更新可见封面（已存在画布则跳过重复生成）。
+- [x] 菜单经 `safeSend` 派发 `zoom`、侧栏、`show-shelf`、`add-bookmark` 等。
+- [x] 窗口 resize：PDF 重绘；EPUB `rendition.resize`；书架封面按需更新。
 
-### 3.7 超大 PDF / 加载体验（功能性需求）
+### 3.8 超大文档 / 加载
 
-- [x] 加载层 **`showLoading` / `setLoadingMessage`**。  
-- [x] `getDocument` 返回 **`loadingTask`**：**`loadingTask.onProgress`** 在有 `loaded/total` 时刷新「解析百分比」文案。  
-- [x] `getReadingPosition` 与 **`getBookmarks`**：**`Promise.all`**。  
-- [x] **延后大纲**：上文 3.4。  
-- [x] PDF 数据源：同一进程内通常为完整 `ArrayBuffer`/Uint8Array；远端 Range 流式不在当前规格内。
+- [x] 加载文案；PDF `loadingTask.onProgress`；延后大纲；进度与书签可并行加载。
 
-### 3.8 UI / 交互状态机
+### 3.9 主题与设置
 
-#### 书架 / 欢迎
+- [x] 主题 ID：`midnight`、`graphite`、`ocean`、`amber`、`paper`；存于 JSON；`get-theme`、`set-theme`、`theme-changed`。
+- [x] 设置面板中选主题；`data-theme` 与 CSS 变量；窗口背景 `THEME_WINDOW_BG`。
 
-- [x] 顶部工具栏**仅**：「打开」「书架」（外加欢迎态下隐藏的「返回书架」）。  
-- [x] **`#toolbarReading`**（翻页 / 缩放 / 大纲按钮 / 阅读书签控件）施加 **`hidden`**。  
-- [x] 底部状态栏 **不显示 `#fileName` 当前 PDF 文件名**（`hidden`）。
+### 3.10 UI 状态机（节选）
 
-#### 阅读 PDF
+- [x] 书架/欢迎：精简工具栏；`#toolbarReading` 在非阅读态隐藏。
+- [x] 阅读：展开阅读工具栏；缩放输入按 PDF/EPUB 状态启用。
+- [x] 适应宽度图标：竖线 + 左右箭头；适应高度图标：横线 + 上下箭头（见 `index.html`）。
 
-- [x] 显示 **`#toolbarReading`**、**「返回书架」**、`#fileName`、书签指示等完整阅读控件。
+### 3.11 应用图标与 Dock
 
-#### 侧栏文案（与混淆项区分）
-
-- [x] 大纲侧栏标题语义：**PDF 大纲目录**；书签侧栏：**我的书签**。
-
-### 3.9 应用图标与 Dock
-
-- [x] 资源：**`build/icon.png`**，`electron-builder.json` **`icon`** 字段。  
-- [x] 开发：**`BrowserWindow`** 选项 **`icon`**；macOS **`app.dock.setIcon`**（路径存在且不破坏时再调用）。
+- [x] `build/icon.png`；electron-builder `icon`；开发时窗口与 Dock；**§2.2 Git 放行**。
 
 ## 4. UI/UX 结构（示意图）
 
-### 4.1 阅读态工具栏（简化）
-
 ```
-[ 打开 ] [ 书架 ] [ 返回书架 ] │ [ ◀ 页码 / 总数 ▶ ] │ … 缩放 │ 大纲 │ 添加书签 │ 书签列表 …
-```
-
-### 4.2 书架 / 欢迎态工具栏
-
-```
-[ 打开 ] [ 书架 ]
+阅读态：[ 打开 ][ 书架 ][ 返回书架 ] │ 翻页 │ 缩放 ± │ 缩放% │ 适应宽高 │ 目录 │ 书签 │ 设置
+书架态：[ 打开 ][ 书架 ]
+内容区：drop-zone ⇄ shelf-view ⇄ pdf-container / epub-container
 ```
 
-### 4.3 主内容切换
-
-```
-欢迎页 (drop-zone) ⇄ 书架 (shelf-view) ⇄ PDF (pdf-container)
-```
-
-### 4.4 配色（节选）
-
-CSS 变量：如 `--primary-bg: #1a1a2e`，`--secondary-bg: #16213e`，书签强调色等参见 `styles.css`。
+配色：多套 `[data-theme=…]` 与 CSS 变量（`styles.css`）。
 
 ## 5. 快捷键与菜单（节选）
 
-详见 `README.md` 与应用内菜单；与实现差异以 **`main.js`** 中 `createMenu` 模板为准。
+与 `README.md`、`main.js` 中 `createMenu` 一致。
 
 | 快捷键 | 功能 |
 |--------|------|
-| Cmd/Ctrl + O | 打开… |
+| Cmd/Ctrl + O | 打开书籍 |
 | Cmd/Ctrl + Shift + O | 书架文件夹 |
 | Cmd/Ctrl + B | 返回书架 |
 | Cmd/Ctrl + D | 添加阅读书签 |
-| Cmd/Ctrl + Shift + T | PDF 大纲目录侧栏 |
+| Cmd/Ctrl + Shift + T | PDF 大纲侧栏 |
 | Cmd/Ctrl + Shift + B | 「我的书签」侧栏 |
 
 ## 6. 数据存储
 
 ### 6.1 路径
 
-`~/Library/Application Support/pdf-reader-mac/pdf-reader-data.json`（与应用 `name`/`userData` 实际目录一致即可）。
+`~/Library/Application Support/pdf-reader-mac/pdf-reader-data.json`
 
 ### 6.2 结构（示意）
 
 ```json
 {
-  "readingPositions": { "/path/to/file.pdf": 12 },
-  "bookmarks": {
-    "/path/to/file.pdf": [
-      {
-        "id": "1704067200000",
-        "page": 12,
-        "label": "某章摘要",
-        "createdAt": "2024-01-01T00:00:00.000Z"
-      }
-    ]
+  "readingPositions": {
+    "/path/to/book.pdf": 12,
+    "/path/to/book.epub": "epubcfi(...)"
   },
-  "shelfFolder": "/path/to/shelf"
+  "bookmarks": {},
+  "shelfFolder": "/path/to/shelf",
+  "theme": "midnight"
 }
 ```
+
+书签项可包含 `page` 或 `cfi`（见 IPC 实现）。
 
 ## 7. 构建与分发
 
 | 配置项 | 说明 |
 |--------|------|
-| `electron-builder.json` | `appId`、`productName`、`directories.output`、`mac.target`、`icon` 等 |
-| `package.json` `scripts.build` | 传入 `--config electron-builder.json` |
+| `electron-builder.json` | `appId`、`productName`、`mac.target`、`icon` 等 |
+| `package.json` | `build`、`build:dir`、`bundle:epub` |
 
 ## 8. 验收标准（增补）
 
-在满足历史版本「能读、能翻页、书架与书签可用」的前提下，增补：
-
-1. **书架态**仅两类主操作入口：**打开** / **书架**；无翻页缩放条。  
-2. **书架态**：底部不出现当前打开的 PDF **文件名**。  
-3. **适应宽度**下长页：**可滚动**读到页底页顶（非仅能看局部）。  
-4. **超大 PDF**：可见解析进度或可接受等待；首页优先于大纲侧栏就绪。  
-5. **书架返回**后不无故全量重建已有封面画布（会话内跳过已存在 `canvas.shelf-cover-canvas`）。  
-6. 菜单项与 **PDF 大纲** / **阅读书签** 语义可区分并可触发侧栏。
+1. 书架态仅保留打开/书架等入口；无完整阅读条。  
+2. 书架态底部不出现当前文件名。  
+3. PDF 适应宽度下长页可纵向滚读。  
+4. 超大 PDF：可见解析进度或合理首屏。  
+5. 书架会话尽量不重复解码已绘封面。  
+6. PDF 大纲与阅读书签语义可区分。  
+7. PDF 与 EPUB 均可打开与放回书架。  
+8. 工具栏缩放百分比可编辑并与实际缩放一致。  
+9. `npm run bundle:epub` 后存在 `public/vendor/epub-browser.mjs`。  
+10. `build/icon.png` 可按 `.gitignore` 否定规则纳入版本库。
 
 ## 9. 非目标（当前版本）
 
-- 连续滚动模式的整本书流式版面。  
-- 注释表单填写、手写批注等非只读编排。  
-- 基于 HTTP Range 的边下边播（不改变「整文件载入」前提时仍为内存侧限制）。
+- 云端同步与多端实时协作。  
+- PDF 复杂表单手写批注（以只读为主）。  
+- 单流连续滚动铺满整本书的 PDF（当前为分页）。  
+- Epub.js 之外的全出版特性扩展。

@@ -174,3 +174,8 @@
 *.lz
 *.lzma
 *.iso
+
+# —— pdf-reader-mac：允许将 electron-builder / Dock 用图标纳入仓库 ——
+# 上方通用的 **/build/ 会忽略本仓库根目录 build/；需解除忽略后再提交 icon.png。
+!build/
+!build/icon.png
