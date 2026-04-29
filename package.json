@@ -6,17 +6,25 @@
   "scripts": {
     "start": "electron .",
     "dev": "electron .",
+    "bundle:epub": "esbuild node_modules/epubjs/lib/epub.js --bundle --platform=browser --format=esm --outfile=public/vendor/epub-browser.mjs",
     "build": "electron-builder --mac --x64 --config electron-builder.json",
     "build:dir": "electron-builder --mac --x64 --dir --config electron-builder.json"
   },
-  "keywords": ["pdf", "reader", "electron", "mac"],
+  "keywords": [
+    "pdf",
+    "reader",
+    "electron",
+    "mac"
+  ],
   "author": "",
   "license": "MIT",
   "devDependencies": {
     "electron": "^28.3.3",
-    "electron-builder": "^24.13.3"
+    "electron-builder": "^24.13.3",
+    "esbuild": "^0.21.5"
   },
   "dependencies": {
+    "epubjs": "^0.3.93",
     "pdfjs-dist": "^4.0.379"
   }
 }

@@ -333,12 +333,38 @@ html, body {
   border-color: var(--accent);
 }
 
+input.zoom-level {
+  box-sizing: border-box;
+}
+
+input.zoom-level,
 .zoom-level {
   min-width: 50px;
+  max-width: 80px;
+  padding: 2px 4px;
   text-align: center;
   font-size: 14px;
   color: var(--text-dim);
   font-family: "SF Mono", Monaco, monospace;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background-color: transparent;
+}
+
+input.zoom-level:hover:not(:disabled) {
+  border-color: var(--border);
+}
+
+input.zoom-level:focus:not(:disabled) {
+  outline: none;
+  border-color: var(--accent);
+  color: var(--text);
+  background-color: var(--primary-bg);
+}
+
+input.zoom-level:disabled {
+  cursor: default;
+  opacity: 0.65;
 }
 
 .content {
@@ -403,6 +429,40 @@ html, body {
   flex-direction: column;
   align-items: center;
   justify-content: flex-start;
+}
+
+.epub-container {
+  display: none;
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  padding: 16px 24px;
+  background-color: var(--pdf-bg);
+  overflow: hidden;
+}
+
+.epub-container.active {
+  display: block;
+}
+
+.epub-viewer {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  border-radius: 6px;
+  background-color: var(--secondary-bg);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.2);
+  overflow: hidden;
+}
+
+.epub-viewer iframe {
+  border: none;
+  background-color: var(--secondary-bg);
+}
+
+.shelf-item-cover.shelf-item-cover-epub svg {
+  width: 52px;
+  height: 52px;
 }
 
 .pdf-page-wrapper {
@@ -803,6 +863,16 @@ html, body {
 .shelf-item-cover canvas {
   display: block;
   flex-shrink: 0;
+}
+
+.shelf-item-cover img.shelf-epub-cover {
+  display: block;
+  flex-shrink: 0;
+  max-width: 100%;
+  max-height: 100%;
+  width: auto;
+  height: auto;
+  object-fit: contain;
 }
 
 .shelf-item-cover svg {

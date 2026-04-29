@@ -66,7 +66,7 @@
         </svg>
       </button>
 
-      <span id="zoomLevel" class="zoom-level">100%</span>
+      <input type="text" id="zoomLevel" class="zoom-level" value="100%" spellcheck="false" autocomplete="off" inputmode="decimal" tabindex="0" title="缩放百分比，可直接修改后按 Enter 或失去焦点生效" aria-label="缩放百分比" disabled />
 
       <button id="zoomInBtn" class="toolbar-btn" title="放大" disabled>
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -78,20 +78,20 @@
       </button>
 
       <button id="fitWidthBtn" class="toolbar-btn" title="适应宽度" disabled>
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M21 3H3"/>
-          <path d="M21 21H3"/>
-          <path d="M9 9L5 12l4 4"/>
-          <path d="M15 9l4 4-4 4"/>
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <!-- 竖线居中，左右箭头表示横向填满 -->
+          <path d="M12 5v14"/>
+          <path d="M12 12H6"/><path d="M6 12l2.5-2.5"/><path d="M6 12l2.5 2.5"/>
+          <path d="M12 12h6"/><path d="M18 12l-2.5-2.5"/><path d="M18 12l-2.5 2.5"/>
         </svg>
       </button>
 
       <button id="fitHeightBtn" class="toolbar-btn" title="适应高度" disabled>
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M3 21V3"/>
-          <path d="M21 21V3"/>
-          <path d="M9 15L5 12l4-4"/>
-          <path d="M9 9l4-4 4 4"/>
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <!-- 横线居中，上下箭头表示纵向填满 -->
+          <path d="M5 12h14"/>
+          <path d="M12 12V6"/><path d="M12 6l-2.5 2"/><path d="M12 6l2.5 2"/>
+          <path d="M12 12v6"/><path d="M12 18l-2.5-2"/><path d="M12 18l2.5-2"/>
         </svg>
       </button>
 
@@ -142,7 +142,7 @@
             <line x1="15" y1="15" x2="12" y2="12"/>
           </svg>
           <p class="drop-zone-text">将 PDF 文件拖放到这里</p>
-          <p class="drop-zone-subtext">或点击上面的「打开」按钮</p>
+          <p class="drop-zone-subtext">或点击上面的「打开」按钮（支持 PDF、EPUB）</p>
           <p class="drop-zone-subtext">点击"书架"按钮选择文件夹作为书架</p>
         </div>
       </div>
@@ -166,6 +166,10 @@
       </div>
 
       <div id="pdfContainer" class="pdf-container"></div>
+
+      <div id="epubContainer" class="epub-container" aria-hidden="true">
+        <div id="epubViewer" class="epub-viewer"></div>
+      </div>
 
       <div id="tocSidebar" class="toc-sidebar">
         <div class="toc-sidebar-header">

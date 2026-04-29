@@ -55,26 +55,30 @@ function saveStorageData(data) {
   }
 }
 
-function readFolderPdfFiles(folderPath) {
-  const pdfFiles = [];
+/** 书架支持的电子书扩展名（小写比对） */
+const SHELF_EXTENSIONS = ['.pdf', '.epub'];
+
+function readFolderShelfFiles(folderPath) {
+  const list = [];
   try {
     const files = fs.readdirSync(folderPath);
     for (const file of files) {
-      if (file.toLowerCase().endsWith('.pdf')) {
-        const filePath = path.join(folderPath, file);
-        const stats = fs.statSync(filePath);
-        pdfFiles.push({
-          name: file,
-          path: filePath,
-          size: stats.size
-        });
-      }
+      const lower = file.toLowerCase();
+      const supported = SHELF_EXTENSIONS.some((ext) => lower.endsWith(ext));
+      if (!supported) continue;
+      const filePath = path.join(folderPath, file);
+      const stats = fs.statSync(filePath);
+      list.push({
+        name: file,
+        path: filePath,
+        size: stats.size
+      });
     }
-    pdfFiles.sort((a, b) => a.name.localeCompare(b.name));
+    list.sort((a, b) => a.name.localeCompare(b.name));
   } catch (error) {
     console.error('Error reading folder:', error);
   }
-  return pdfFiles;
+  return list;
 }
 
 function getAppIconPath() {
@@ -106,6 +110,9 @@ function createWindow() {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
+      sandbox: false,
+      /** 允许本地 file:/// 脚本互引（仍会优先用 Blob import 加载 epub 包） */
+      webSecurity: false,
       preload: path.join(__dirname, 'preload.js')
     },
     backgroundColor: bgColor,
@@ -115,16 +122,20 @@ function createWindow() {
 
   mainWindow.loadFile(path.join(__dirname, '../public/index.html'));
 
+  mainWindow.webContents.on('preload-error', (_event, preloadPath, error) => {
+    console.error('[preload-error]', preloadPath, error);
+  });
+
   mainWindow.once('ready-to-show', () => {
     mainWindow.show();
 
     const storage = getStorageData();
     if (storage.shelfFolder && fs.existsSync(storage.shelfFolder)) {
-      const pdfFiles = readFolderPdfFiles(storage.shelfFolder);
+      const shelfFiles = readFolderShelfFiles(storage.shelfFolder);
       mainWindow.webContents.send('folder-opened', {
         path: storage.shelfFolder,
         name: path.basename(storage.shelfFolder),
-        files: pdfFiles
+        files: shelfFiles
       });
     }
   });
@@ -275,7 +286,7 @@ async function openFile() {
   const result = await dialog.showOpenDialog(mainWindow, {
     properties: ['openFile'],
     filters: [
-      { name: 'PDF 文件', extensions: ['pdf'] }
+      { name: '电子书 (PDF / EPUB)', extensions: ['pdf', 'epub'] }
     ]
   });
 
@@ -295,7 +306,7 @@ async function openFolder() {
 
   if (!result.canceled && result.filePaths.length > 0) {
     const folderPath = result.filePaths[0];
-    const pdfFiles = readFolderPdfFiles(folderPath);
+    const shelfFiles = readFolderShelfFiles(folderPath);
 
     const storage = getStorageData();
     storage.shelfFolder = folderPath;
@@ -304,7 +315,7 @@ async function openFolder() {
     mainWindow.webContents.send('folder-opened', {
       path: folderPath,
       name: path.basename(folderPath),
-      files: pdfFiles
+      files: shelfFiles
     });
   }
 }
@@ -326,8 +337,27 @@ ipcMain.handle('read-pdf-file', async (event, filePath) => {
       data: fileBuffer
     };
   } catch (error) {
-    console.error('Error reading PDF file:', error);
+    console.error('Error reading book file:', error);
     return null;
+  }
+});
+
+/** file:// + 本地 import() 常被拦截；改为由主进程读盘，渲染进程用 blob URL 动态 import */
+function getEpubVendorPath() {
+  return path.join(__dirname, '..', 'public', 'vendor', 'epub-browser.mjs');
+}
+
+ipcMain.handle('read-epub-vendor-bundle', async () => {
+  const p = getEpubVendorPath();
+  try {
+    if (!fs.existsSync(p)) {
+      console.error('[read-epub-vendor-bundle] 文件不存在:', p);
+      return '';
+    }
+    return await fs.promises.readFile(p, 'utf8');
+  } catch (e) {
+    console.error('[read-epub-vendor-bundle]', e);
+    return '';
   }
 });
 
@@ -336,9 +366,9 @@ ipcMain.handle('get-reading-position', async (event, filePath) => {
   return storage.readingPositions[filePath] || null;
 });
 
-ipcMain.handle('save-reading-position', async (event, filePath, page) => {
+ipcMain.handle('save-reading-position', async (event, filePath, position) => {
   const storage = getStorageData();
-  storage.readingPositions[filePath] = page;
+  storage.readingPositions[filePath] = position;
   saveStorageData(storage);
   return true;
 });
@@ -348,17 +378,37 @@ ipcMain.handle('get-bookmarks', async (event, filePath) => {
   return storage.bookmarks[filePath] || [];
 });
 
-ipcMain.handle('add-bookmark', async (event, filePath, page, label) => {
+ipcMain.handle('add-bookmark', async (event, filePath, pageOrPayload, label) => {
   const storage = getStorageData();
   if (!storage.bookmarks[filePath]) {
     storage.bookmarks[filePath] = [];
   }
+
+  let page;
+  let cfi;
+  if (typeof pageOrPayload === 'number') {
+    page = pageOrPayload;
+  } else if (pageOrPayload && typeof pageOrPayload === 'object' && typeof pageOrPayload.cfi === 'string') {
+    cfi = pageOrPayload.cfi;
+  }
+
+  let defaultLabel;
+  if (typeof page === 'number') {
+    defaultLabel = `第 ${page} 页`;
+  } else if (cfi) {
+    defaultLabel = '阅读位置';
+  } else {
+    defaultLabel = '书签';
+  }
+
   const bookmark = {
     id: Date.now().toString(),
-    page,
-    label: label || `第 ${page} 页`,
+    label: label || defaultLabel,
     createdAt: new Date().toISOString()
   };
+  if (typeof page === 'number') bookmark.page = page;
+  if (cfi) bookmark.cfi = cfi;
+
   storage.bookmarks[filePath].push(bookmark);
   saveStorageData(storage);
   return bookmark;

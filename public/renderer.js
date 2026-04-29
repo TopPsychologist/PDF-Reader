@@ -20,6 +20,84 @@ async function ensurePdfJsLib() {
   return pdfJsLoadPromise;
 }
 
+/** 在渲染进程加载（esbuild 打包到 public/vendor），不得经 preload 传 Book 对象 */
+const EPUBJS_REL = './vendor/epub-browser.mjs';
+
+let ePubFactory = null;
+let epubJsLoadPromise = null;
+
+/** esbuild CJS→ESM 常出现 default 双层包装：{ default: function ePub(...) } */
+function unwrapEpubDefaultExport(mod) {
+  if (!mod) return undefined;
+  let v = mod.default !== undefined ? mod.default : mod;
+  if (typeof v === 'function') return v;
+  if (v != null && typeof v.default === 'function') return v.default;
+  return undefined;
+}
+
+async function ensureEpubJsLib() {
+  if (ePubFactory) return ePubFactory;
+  if (!epubJsLoadPromise) {
+    epubJsLoadPromise = (async () => {
+      let lastElectronErr = null;
+
+      /** file:// 下对另一磁盘路径的 import() 常失败 → 由主进程读 public/vendor/epub-browser.mjs，再 Blob URL import */
+      async function tryLoadViaMainProcessBlob() {
+        const api = window.electronAPI;
+        if (!api || typeof api.readEpubVendorBundle !== 'function') return undefined;
+        const src = await api.readEpubVendorBundle();
+        if (!src) return undefined;
+        const blobUrl = URL.createObjectURL(
+          new Blob([src], { type: 'application/javascript' })
+        );
+        try {
+          const mod = await import(blobUrl);
+          return unwrapEpubDefaultExport(mod);
+        } finally {
+          URL.revokeObjectURL(blobUrl);
+        }
+      }
+
+      async function tryLoadViaRelativeImport() {
+        const mod = await import(new URL(EPUBJS_REL, import.meta.url));
+        return unwrapEpubDefaultExport(mod);
+      }
+
+      let fn;
+
+      try {
+        fn = await tryLoadViaMainProcessBlob();
+      } catch (e) {
+        lastElectronErr = e;
+        console.warn('[epub] 主进程读盘 + Blob 导入失败:', e?.message || e);
+      }
+
+      if (typeof fn !== 'function') {
+        try {
+          fn = await tryLoadViaRelativeImport();
+        } catch (e2) {
+          throw new Error(
+            (lastElectronErr && lastElectronErr.message) ||
+              (e2 && e2.message) ||
+              String(lastElectronErr || e2)
+          );
+        }
+      }
+
+      if (typeof fn !== 'function') {
+        throw new Error('EPUB 模块未导出默认工厂函数');
+      }
+
+      ePubFactory = fn;
+      return ePubFactory;
+    })().catch((err) => {
+      epubJsLoadPromise = null;
+      throw err;
+    });
+  }
+  return epubJsLoadPromise;
+}
+
 let pdfDoc = null;
 let currentPage = 1;
 let totalPages = 0;
@@ -32,12 +110,20 @@ let isLoading = false;
 let savePositionTimer = null;
 let currentShelfFiles = [];
 
+/** 当前阅读器：none / pdf / epub */
+let viewerKind = 'none';
+let epubBook = null;
+let epubRendition = null;
+let epubZoomPercent = 110;
+
 function getCssPixelRatio() {
   return window.devicePixelRatio || 1;
 }
 
 const dropZone = document.getElementById('dropZone');
 const pdfContainer = document.getElementById('pdfContainer');
+const epubContainer = document.getElementById('epubContainer');
+const epubViewerMount = document.getElementById('epubViewer');
 const shelfView = document.getElementById('shelfView');
 const shelfGrid = document.getElementById('shelfGrid');
 const shelfTitle = document.getElementById('shelfTitle');
@@ -81,6 +167,41 @@ const THEME_IDS = ['midnight', 'graphite', 'ocean', 'amber', 'paper'];
 const SHELF_COVER_BOX_CSS_W = 100;
 const SHELF_COVER_BOX_CSS_H = 140;
 
+function classifyPath(pathName) {
+  const l = (pathName || '').toLowerCase();
+  if (l.endsWith('.epub')) return 'epub';
+  return 'pdf';
+}
+
+function toArrayBuffer(binary) {
+  if (!binary) return binary;
+  if (binary instanceof ArrayBuffer) return binary;
+  const u8 = binary instanceof Uint8Array ? binary : new Uint8Array(binary);
+  return u8.buffer.slice(u8.byteOffset, u8.byteOffset + u8.byteLength);
+}
+
+function escapeHtml(raw) {
+  const d = document.createElement('div');
+  d.textContent = raw == null ? '' : String(raw);
+  return d.innerHTML;
+}
+
+function destroyEpubViewer() {
+  if (epubRendition) {
+    try {
+      epubRendition.destroy();
+    } catch (_) {}
+    epubRendition = null;
+  }
+  if (epubBook) {
+    try {
+      epubBook.destroy();
+    } catch (_) {}
+    epubBook = null;
+  }
+  if (epubViewerMount) epubViewerMount.innerHTML = '';
+}
+
 function showLoading(text = '正在加载...') {
   loadingText.textContent = text;
   loadingOverlay.classList.add('active');
@@ -97,9 +218,14 @@ function hideLoading() {
 }
 
 function showPdfView() {
+  viewerKind = 'pdf';
   dropZone.classList.add('hidden');
   shelfView.classList.remove('active');
   pdfContainer.classList.add('active');
+  if (epubContainer) {
+    epubContainer.classList.remove('active');
+    epubContainer.setAttribute('aria-hidden', 'true');
+  }
   tocSidebar.classList.remove('active');
   bookmarkSidebar.classList.remove('active');
   backToShelfBtn.classList.remove('hidden');
@@ -109,7 +235,13 @@ function showPdfView() {
 }
 
 function showShelfView() {
+  viewerKind = 'none';
+  destroyEpubViewer();
   pdfContainer.classList.remove('active');
+  if (epubContainer) {
+    epubContainer.classList.remove('active');
+    epubContainer.setAttribute('aria-hidden', 'true');
+  }
   dropZone.classList.add('hidden');
   shelfView.classList.add('active');
   tocSidebar.classList.remove('active');
@@ -121,15 +253,68 @@ function showShelfView() {
 }
 
 function showWelcome() {
+  viewerKind = 'none';
+  destroyEpubViewer();
   dropZone.classList.remove('hidden');
   shelfView.classList.remove('active');
   pdfContainer.classList.remove('active');
+  if (epubContainer) {
+    epubContainer.classList.remove('active');
+    epubContainer.setAttribute('aria-hidden', 'true');
+  }
   tocSidebar.classList.remove('active');
   bookmarkSidebar.classList.remove('active');
   backToShelfBtn.classList.add('hidden');
   if (toolbarReading) toolbarReading.classList.add('hidden');
   fileNameEl.classList.add('hidden');
   enablePdfControls(false);
+}
+
+function showEpubReaderView() {
+  viewerKind = 'epub';
+  dropZone.classList.add('hidden');
+  shelfView.classList.remove('active');
+  pdfContainer.classList.remove('active');
+  if (epubContainer) {
+    epubContainer.classList.add('active');
+    epubContainer.setAttribute('aria-hidden', 'false');
+  }
+  tocSidebar.classList.remove('active');
+  bookmarkSidebar.classList.remove('active');
+  backToShelfBtn.classList.remove('hidden');
+  if (toolbarReading) toolbarReading.classList.remove('hidden');
+  fileNameEl.classList.remove('hidden');
+  epubToolbarState();
+}
+
+function epubToolbarState() {
+  prevBtn.disabled = !epubRendition;
+  nextBtn.disabled = !epubRendition;
+  pageInput.disabled = true;
+  pageInput.placeholder = '—';
+  zoomInBtn.disabled = !epubRendition;
+  zoomOutBtn.disabled = !epubRendition;
+  fitWidthBtn.disabled = !epubRendition;
+  fitHeightBtn.disabled = !epubRendition;
+  tocBtn.disabled = !epubBook;
+  bookmarkBtn.disabled = !epubRendition;
+  showBookmarksBtn.disabled = !currentPdfPath;
+  zoomLevelEl.disabled = !epubRendition;
+  updateZoomLevelField();
+}
+
+function updateEpubPageLabel() {
+  if (!epubRendition) return;
+  const loc = epubRendition.currentLocation?.();
+  const cur = loc?.start?.displayed?.page;
+  const total = loc?.start?.displayed?.total;
+  if (cur != null && total != null) {
+    totalPagesEl.textContent = String(total);
+    pageInput.value = String(cur);
+  } else {
+    totalPagesEl.textContent = '—';
+    pageInput.value = '';
+  }
 }
 
 function enablePdfControls(enable) {
@@ -143,10 +328,16 @@ function enablePdfControls(enable) {
   tocBtn.disabled = !enable;
   bookmarkBtn.disabled = !enable;
   showBookmarksBtn.disabled = !enable;
+  zoomLevelEl.disabled = !enable;
 }
 
 function isCurrentPageBookmarked() {
-  return currentBookmarks.some(b => b.page === currentPage);
+  if (viewerKind === 'epub') {
+    const cfi = epubRendition?.currentLocation?.()?.start?.cfi;
+    if (!cfi) return false;
+    return currentBookmarks.some((b) => b.cfi && b.cfi === cfi);
+  }
+  return currentBookmarks.some((b) => b.page === currentPage);
 }
 
 function updateBookmarkIndicator() {
@@ -220,6 +411,7 @@ async function loadDeferredOutline() {
 async function loadPDF(data, filePath = null) {
   try {
     showLoading('正在解析 PDF…');
+    destroyEpubViewer();
     await ensurePdfJsLib();
 
     if (pdfDoc) {
@@ -256,8 +448,8 @@ async function loadPDF(data, filePath = null) {
         window.electronAPI.getReadingPosition(filePath),
         window.electronAPI.getBookmarks(filePath)
       ]);
-      if (savedPosition) {
-        startPage = savedPosition;
+      if (typeof savedPosition === 'number') {
+        startPage = Math.max(1, Math.floor(savedPosition));
       }
       currentBookmarks = bookmarks || [];
     } else {
@@ -286,6 +478,103 @@ async function loadPDF(data, filePath = null) {
     hideLoading();
     statusText.textContent = '加载失败: ' + error.message;
   }
+}
+
+async function loadEPUB(binary, filePath = null) {
+  try {
+    let ePub;
+    try {
+      ePub = await ensureEpubJsLib();
+    } catch (loadErr) {
+      hideLoading();
+      statusText.textContent =
+        '无法加载 EPUB 引擎（请确认 public/vendor/epub-browser.mjs 存在，可执行 npm run bundle:epub；若仍失败请看终端 [read-epub-vendor-bundle] 日志）：' +
+        (loadErr && loadErr.message ? loadErr.message : String(loadErr));
+      return;
+    }
+
+    showLoading('正在打开 EPUB…');
+    destroyEpubViewer();
+
+    if (pdfDoc) {
+      pdfDoc.destroy();
+      pdfDoc = null;
+    }
+
+    viewerKind = 'epub';
+    setLoadingMessage('正在解析电子书包…');
+
+    const ab =
+      binary instanceof ArrayBuffer ? binary : toArrayBuffer(binary);
+    /** 禁止 openAs:'epub'：会把 ArrayBuffer 当 URL 去 fetch，ready 永远不结束 */
+    epubBook = ePub(ab, {
+      replacements: 'blobUrl'
+    });
+
+    await epubBook.ready;
+
+    currentPdfPath = filePath;
+
+    let startCfi = null;
+    currentBookmarks = [];
+    if (filePath) {
+      const [saved, bookmarks] = await Promise.all([
+        window.electronAPI.getReadingPosition(filePath),
+        window.electronAPI.getBookmarks(filePath)
+      ]);
+      if (typeof saved === 'string' && saved.startsWith('epubcfi(')) startCfi = saved;
+      currentBookmarks = bookmarks || [];
+    }
+
+    showEpubReaderView();
+    if (!epubViewerMount) throw new Error('缺少 EPUB 容器');
+    epubViewerMount.innerHTML = '';
+
+    setLoadingMessage('正在排版…');
+
+    epubRendition = epubBook.renderTo(epubViewerMount, {
+      width: '100%',
+      height: '100%',
+      flow: 'paginated',
+      spread: 'auto'
+    });
+
+    try {
+      epubRendition.themes.fontSize(`${epubZoomPercent}%`);
+    } catch (_) {}
+
+    epubRendition.on('relocated', () => {
+      if (currentPdfPath) {
+        const loc = epubRendition.currentLocation?.();
+        const cfi = loc?.start?.cfi;
+        if (cfi) {
+          window.electronAPI.saveReadingPosition(currentPdfPath, cfi);
+        }
+      }
+      updateEpubPageLabel();
+      updateBookmarkIndicator();
+    });
+
+    await epubRendition.display(startCfi || undefined);
+
+    hideLoading();
+    updateEpubPageLabel();
+    epubToolbarState();
+    updateBookmarkIndicator();
+    statusText.textContent =
+      currentPdfPath && filePath != null ? `EPUB · ${extractBaseName(filePath)}` : '已打开 EPUB';
+  } catch (err) {
+    console.error('loadEPUB', err);
+    hideLoading();
+    viewerKind = 'none';
+    destroyEpubViewer();
+    statusText.textContent = `EPUB 加载失败：${err && err.message ? err.message : String(err)}`;
+  }
+}
+
+function extractBaseName(p) {
+  const parts = p.split(/[/\\]/);
+  return parts[parts.length - 1] || '';
 }
 
 async function parseOutline(outline, pdf) {
@@ -410,6 +699,7 @@ async function renderPage(pageNum) {
 }
 
 function scheduleSavePosition() {
+  if (viewerKind !== 'pdf') return;
   if (savePositionTimer) {
     clearTimeout(savePositionTimer);
   }
@@ -421,7 +711,7 @@ function scheduleSavePosition() {
 }
 
 function goToPage(pageNum) {
-  if (!pdfDoc) return;
+  if (!pdfDoc || viewerKind !== 'pdf') return;
 
   if (pageNum < 1) pageNum = 1;
   if (pageNum > totalPages) pageNum = totalPages;
@@ -433,24 +723,98 @@ function goToPage(pageNum) {
   scheduleSavePosition();
 }
 
+function updateZoomLevelField() {
+  if (!zoomLevelEl) return;
+  if (viewerKind === 'epub') {
+    zoomLevelEl.value = epubRendition ? `${epubZoomPercent}%` : '—';
+    return;
+  }
+  if (!pdfDoc) {
+    zoomLevelEl.value = '100%';
+    return;
+  }
+  const pct = Math.round(
+    fitMode === 'width' || fitMode === 'height' ? 100 : scale * 100
+  );
+  zoomLevelEl.value = `${pct}%`;
+}
+
+function applyZoomPercentFromInput() {
+  const raw = (zoomLevelEl.value || '').trim();
+  const normalized = raw.replace(/%/g, '').replace(/\s/g, '').replace(/,/g, '');
+  const n = parseFloat(normalized);
+  if (!Number.isFinite(n) || n <= 0) {
+    updateZoomLevelField();
+    return;
+  }
+  let pct = Math.round(n);
+
+  if (viewerKind === 'epub') {
+    if (!epubRendition) {
+      updateZoomLevelField();
+      return;
+    }
+    epubZoomPercent = Math.min(220, Math.max(60, pct));
+    try {
+      epubRendition.themes.fontSize(`${epubZoomPercent}%`);
+    } catch (_) {}
+    updateZoomLevelField();
+    return;
+  }
+
+  if (viewerKind !== 'pdf' || !pdfDoc) {
+    updateZoomLevelField();
+    return;
+  }
+
+  pct = Math.min(500, Math.max(25, pct));
+  scale = pct / 100;
+  fitMode = 'custom';
+  void renderPage(currentPage)
+    .then(() => {
+      updateUI();
+    })
+    .catch((err) => console.error(err));
+}
+
 function updateUI() {
+  if (viewerKind === 'epub') {
+    updateEpubPageLabel();
+    return;
+  }
   if (!pdfDoc) {
     prevBtn.disabled = true;
     nextBtn.disabled = true;
+    updateZoomLevelField();
     return;
   }
 
   prevBtn.disabled = currentPage <= 1;
   nextBtn.disabled = currentPage >= totalPages;
   pageInput.value = currentPage;
-  zoomLevelEl.textContent = Math.round((fitMode === 'width' || fitMode === 'height' ? 100 : scale * 100)) + '%';
+  updateZoomLevelField();
 }
 
 function updateTocButton() {
-  tocBtn.disabled = !pdfDoc;
+  if (viewerKind === 'epub') {
+    tocBtn.disabled = !epubBook;
+  } else {
+    tocBtn.disabled = !pdfDoc;
+  }
 }
 
 function zoom(direction) {
+  if (viewerKind === 'epub') {
+    if (!epubRendition) return;
+    if (direction === 'in') epubZoomPercent = Math.min(epubZoomPercent + 10, 220);
+    else if (direction === 'out') epubZoomPercent = Math.max(epubZoomPercent - 10, 60);
+    else if (direction === 'fit-width' || direction === 'fit-height') epubZoomPercent = 110;
+    try {
+      epubRendition.themes.fontSize(`${epubZoomPercent}%`);
+    } catch (_) {}
+    updateZoomLevelField();
+    return;
+  }
   if (!pdfDoc) return;
 
   if (direction === 'in') {
@@ -469,7 +833,72 @@ function zoom(direction) {
   updateUI();
 }
 
+async function renderEpubNavigation() {
+  tocList.innerHTML = '<div class="toc-loading">正在加载 EPUB 目录…</div>';
+  try {
+    if (!epubBook || !epubRendition) {
+      tocList.innerHTML = '<div class="toc-empty">未打开电子书</div>';
+      return;
+    }
+
+    await epubBook.loaded.navigation;
+    const root = epubBook.navigation?.toc;
+    const items = flattenEpubToc(root || []);
+
+    tocList.innerHTML = '';
+    if (items.length === 0) {
+      tocList.innerHTML = '<div class="toc-empty">本书暂无目录导航</div>';
+      return;
+    }
+
+    items.forEach((entry) => {
+      const div = document.createElement('div');
+      div.className = 'toc-item';
+      div.innerHTML = `
+        <span class="toc-item-title">${escapeHtml(entry.title)}</span>
+      `;
+      div.addEventListener('click', async () => {
+        try {
+          await epubRendition.display(entry.href);
+          tocSidebar.classList.remove('active');
+        } catch (e) {
+          statusText.textContent = '跳转失败';
+        }
+      });
+      tocList.appendChild(div);
+    });
+  } catch (e) {
+    tocList.innerHTML = `<div class="toc-empty">目录加载失败</div>`;
+  }
+}
+
+function flattenEpubToc(nodes) {
+  const out = [];
+  const walk = (list) => {
+    for (const n of list || []) {
+      if (n.label) {
+        out.push({
+          title: stripMarkup(String(n.label)),
+          href: n.href
+        });
+      }
+      if (n.subitems && n.subitems.length) walk(n.subitems);
+    }
+  };
+  walk(nodes);
+  return out.filter((it) => it.href);
+}
+
+function stripMarkup(s) {
+  return String(s).replace(/<[^>]*>/gi, '').trim();
+}
+
 function renderToc() {
+  if (viewerKind === 'epub') {
+    void renderEpubNavigation();
+    return;
+  }
+
   tocList.innerHTML = '<div class="toc-loading">正在加载目录...</div>';
 
   setTimeout(async () => {
@@ -478,7 +907,8 @@ function renderToc() {
       if (pageToc.length > 0) {
         renderTocItems(pageToc);
       } else {
-        tocList.innerHTML = '<div class="toc-empty">该 PDF 没有目录<br>尝试点击页面跳转</div>';
+        tocList.innerHTML =
+          '<div class="toc-empty">该 PDF 没有目录<br>尝试点击页面跳转</div>';
       }
     } else {
       renderTocItems(currentToc);
@@ -527,7 +957,11 @@ function renderBookmarks() {
     `;
 
     item.querySelector('.bookmark-item-label').addEventListener('click', () => {
-      goToPage(bookmark.page);
+      if (bookmark.cfi && epubRendition) {
+        epubRendition.display(bookmark.cfi).catch(() => {});
+      } else if (bookmark.page) {
+        goToPage(bookmark.page);
+      }
       bookmarkSidebar.classList.remove('active');
     });
 
@@ -544,7 +978,24 @@ function renderBookmarks() {
 }
 
 async function addBookmark() {
-  if (!pdfDoc || !currentPdfPath) return;
+  if (!currentPdfPath) return;
+
+  if (viewerKind === 'epub') {
+    if (!epubRendition) return;
+    const loc = epubRendition.currentLocation?.();
+    const cfi = loc?.start?.cfi;
+    if (!cfi) return;
+    const label = prompt('输入书签名称:', '阅读位置');
+    if (label === null) return;
+    const bookmark = await window.electronAPI.addBookmark(currentPdfPath, { cfi }, label);
+    currentBookmarks.push(bookmark);
+    renderBookmarks();
+    updateBookmarkIndicator();
+    statusText.textContent = `已添加书签: ${label}`;
+    return;
+  }
+
+  if (!pdfDoc) return;
 
   const label = prompt('输入书签名称:', `第 ${currentPage} 页`);
   if (label === null) return;
@@ -568,27 +1019,44 @@ async function renderShelfWithCovers(files) {
   currentShelfFiles = files;
 
   for (const file of files) {
+    const isEpub = file.name.toLowerCase().endsWith('.epub');
     const item = document.createElement('div');
     item.className = 'shelf-item';
+    const coverInner = isEpub
+      ? `
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
+        <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
+        <path d="M12 8h8"/>
+      </svg>
+    `
+      : `
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+        <polyline points="14 2 14 8 20 8"/>
+        <line x1="16" y1="13" x2="8" y2="13"/>
+        <line x1="16" y1="17" x2="8" y2="17"/>
+      </svg>
+    `;
     item.innerHTML = `
-      <div class="shelf-item-cover" data-path="${file.path}">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-          <polyline points="14 2 14 8 20 8"/>
-          <line x1="16" y1="13" x2="8" y2="13"/>
-          <line x1="16" y1="17" x2="8" y2="17"/>
-        </svg>
+      <div class="shelf-item-cover${isEpub ? ' shelf-item-cover-epub' : ''}" data-path="${file.path}" data-format="${isEpub ? 'epub' : 'pdf'}">
+        ${coverInner}
       </div>
-      <span class="shelf-item-title">${file.name}</span>
+      <span class="shelf-item-title">${escapeHtml(file.name)}</span>
       <span class="shelf-item-progress" data-path="${file.path}"></span>
     `;
 
     item.addEventListener('click', async () => {
-      showLoading('正在读取文件…');
-      const pdfData = await window.electronAPI.readPdfFile(file.path);
-      if (pdfData) {
+      const kind = classifyPath(file.path);
+      showLoading(kind === 'epub' ? '正在打开 EPUB…' : '正在读取 PDF…');
+      const bookData = await window.electronAPI.readBookFile(file.path);
+      if (bookData) {
         fileNameEl.textContent = file.name;
-        loadPDF(pdfData.data, file.path);
+        if (kind === 'epub') {
+          await loadEPUB(bookData.data, file.path);
+        } else {
+          await loadPDF(bookData.data, file.path);
+        }
       } else {
         hideLoading();
         statusText.textContent = '加载失败';
@@ -602,22 +1070,103 @@ async function renderShelfWithCovers(files) {
   updateReadingProgress();
 }
 
-async function renderCoversForVisibleItems() {
+async function renderEpubShelfCover(coverEl, filePath) {
+  let ePub;
   try {
-    await ensurePdfJsLib();
+    ePub = await ensureEpubJsLib();
   } catch (e) {
-    console.warn('PDF engine unavailable for shelf covers:', e);
+    console.warn('EPUB engine unavailable for shelf covers:', e);
     return;
   }
 
+  let book = null;
+  try {
+    const res = await window.electronAPI.readBookFile(filePath);
+    if (!res?.data) return;
+
+    const ab = toArrayBuffer(res.data);
+    book = ePub(ab, {
+      replacements: 'blobUrl'
+    });
+    await book.ready;
+
+    let coverHref = null;
+    try {
+      coverHref = await book.coverUrl();
+    } catch (_) {
+      coverHref = null;
+    }
+
+    const finishBook = () => {
+      try {
+        book.destroy();
+      } catch (_) {}
+      book = null;
+    };
+
+    if (!coverHref) {
+      finishBook();
+      return;
+    }
+
+    const img = document.createElement('img');
+    img.className = 'shelf-epub-cover shelf-cover-img';
+    img.alt = '';
+    img.loading = 'lazy';
+    img.decoding = 'async';
+
+    img.onload = () => finishBook();
+    img.onerror = () => finishBook();
+
+    img.src = coverHref;
+
+    coverEl.innerHTML = '';
+    coverEl.appendChild(img);
+
+    img.decode?.().catch(() => {});
+  } catch (e) {
+    console.log('renderEpubShelfCover', filePath, e);
+    try {
+      book?.destroy?.();
+    } catch (_) {}
+  }
+}
+
+async function renderCoversForVisibleItems() {
   const items = shelfGrid.querySelectorAll('.shelf-item-cover[data-path]');
   const coverCache = {};
+
+  let pdfJsReadyPromise = null;
+  async function ensurePdfJsForCovers() {
+    if (!pdfJsReadyPromise) {
+      pdfJsReadyPromise = ensurePdfJsLib();
+    }
+    return pdfJsReadyPromise;
+  }
 
   for (const coverEl of items) {
     const filePath = coverEl.dataset.path;
     if (coverCache[filePath]) continue;
 
-    // 已渲染过封面则保留，返回书架时不重复解码整本 PDF
+    const lower = (filePath || '').toLowerCase();
+
+    if (lower.endsWith('.epub')) {
+      if (coverEl.querySelector('img.shelf-epub-cover')) {
+        coverCache[filePath] = true;
+        continue;
+      }
+      await renderEpubShelfCover(coverEl, filePath);
+      coverCache[filePath] = true;
+      continue;
+    }
+
+    try {
+      await ensurePdfJsForCovers();
+    } catch (e) {
+      console.warn('PDF engine unavailable for shelf covers:', e);
+      return;
+    }
+
     if (coverEl.querySelector('canvas.shelf-cover-canvas')) {
       coverCache[filePath] = true;
       continue;
@@ -679,8 +1228,12 @@ async function updateReadingProgress() {
   for (const progressEl of items) {
     const filePath = progressEl.dataset.path;
     try {
+      if (!(filePath || '').toLowerCase().endsWith('.pdf')) {
+        progressEl.textContent = '';
+        continue;
+      }
       const position = await window.electronAPI.getReadingPosition(filePath);
-      if (position) {
+      if (position && typeof position === 'number') {
         const pdfData = await window.electronAPI.readPdfFile(filePath);
         if (pdfData) {
           const loadingTask = pdfjsLib.getDocument({ data: pdfData.data });
@@ -797,14 +1350,23 @@ function setupEventListeners() {
   });
 
   prevBtn.addEventListener('click', () => {
+    if (viewerKind === 'epub') {
+      epubRendition?.prev?.();
+      return;
+    }
     goToPage(currentPage - 1);
   });
 
   nextBtn.addEventListener('click', () => {
+    if (viewerKind === 'epub') {
+      epubRendition?.next?.();
+      return;
+    }
     goToPage(currentPage + 1);
   });
 
   pageInput.addEventListener('change', (e) => {
+    if (viewerKind !== 'pdf') return;
     const pageNum = parseInt(e.target.value, 10);
     if (!isNaN(pageNum)) {
       goToPage(pageNum);
@@ -815,6 +1377,21 @@ function setupEventListeners() {
   zoomOutBtn.addEventListener('click', () => zoom('out'));
   fitWidthBtn.addEventListener('click', () => zoom('fit-width'));
   fitHeightBtn.addEventListener('click', () => zoom('fit-height'));
+
+  zoomLevelEl.addEventListener('focus', () => {
+    try {
+      zoomLevelEl.select();
+    } catch (_) {}
+  });
+  zoomLevelEl.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      zoomLevelEl.blur();
+    }
+  });
+  zoomLevelEl.addEventListener('blur', () => {
+    applyZoomPercentFromInput();
+  });
 
   tocBtn.addEventListener('click', () => {
     renderToc();
@@ -845,33 +1422,51 @@ function setupEventListeners() {
       closeSettings();
       return;
     }
+    if ((e.metaKey || e.ctrlKey) && e.key === 'd') {
+      e.preventDefault();
+      addBookmark();
+      return;
+    }
+    if ((e.metaKey || e.ctrlKey) && e.key === 'b') {
+      e.preventDefault();
+      showShelfView();
+      return;
+    }
     if (e.target.tagName === 'INPUT') return;
+
+    if (viewerKind === 'epub' && epubRendition) {
+      if (e.key === 'ArrowLeft') {
+        epubRendition.prev();
+      } else if (e.key === 'ArrowRight') {
+        epubRendition.next();
+      }
+      return;
+    }
+
     if (!pdfDoc) return;
 
     if (e.key === 'ArrowLeft') {
       goToPage(currentPage - 1);
     } else if (e.key === 'ArrowRight') {
       goToPage(currentPage + 1);
-    } else if ((e.metaKey || e.ctrlKey) && e.key === 'd') {
-      e.preventDefault();
-      addBookmark();
-    } else if ((e.metaKey || e.ctrlKey) && e.key === 'b') {
-      e.preventDefault();
-      showShelfView();
     }
   });
 
   window.electronAPI.onFileOpened(async (data) => {
-    if (data) {
-      showLoading('正在读取文件…');
-      const pdfData = await window.electronAPI.readPdfFile(data.path);
-      if (pdfData) {
-        fileNameEl.textContent = data.name;
-        loadPDF(pdfData.data, data.path);
+    if (!data) return;
+    const kind = classifyPath(data.name);
+    showLoading(kind === 'epub' ? '正在打开 EPUB…' : '正在读取 PDF…');
+    const blob = await window.electronAPI.readBookFile(data.path);
+    if (blob) {
+      fileNameEl.textContent = data.name;
+      if (kind === 'epub') {
+        await loadEPUB(blob.data, data.path);
       } else {
-        hideLoading();
-        statusText.textContent = '读取文件失败';
+        await loadPDF(blob.data, data.path);
       }
+    } else {
+      hideLoading();
+      statusText.textContent = '读取文件失败';
     }
   });
 
@@ -880,7 +1475,7 @@ function setupEventListeners() {
       shelfTitle.textContent = data.name;
       renderShelfWithCovers(data.files);
       showShelfView();
-      statusText.textContent = `书架: ${data.files.length} 个 PDF 文件`;
+      statusText.textContent = `书架: ${data.files.length} 个图书文件`;
     }
   });
 
@@ -897,8 +1492,12 @@ function setupEventListeners() {
   });
 
   window.electronAPI.onToggleTocSidebar(() => {
-    if (!pdfDoc) {
-      statusText.textContent = '请先打开 PDF 后再查看 PDF 大纲目录';
+    if (viewerKind === 'pdf' && !pdfDoc) {
+      statusText.textContent = '请先打开 PDF 后再查看目录';
+      return;
+    }
+    if (viewerKind === 'epub' && !epubBook) {
+      statusText.textContent = '请先打开 EPUB 后再查看目录';
       return;
     }
     renderToc();
@@ -907,8 +1506,8 @@ function setupEventListeners() {
   });
 
   window.electronAPI.onToggleBookmarksSidebar(() => {
-    if (!pdfDoc || !currentPdfPath) {
-      statusText.textContent = '请先打开 PDF 后再查看书签列表';
+    if (!currentPdfPath) {
+      statusText.textContent = '请先打开电子书后再查看书签';
       return;
     }
     renderBookmarks();
@@ -940,23 +1539,36 @@ function setupEventListeners() {
     const files = e.dataTransfer.files;
     if (files.length > 0) {
       const file = files[0];
-      if (file.type === 'application/pdf' || file.name.endsWith('.pdf')) {
+      const ok =
+        file.type === 'application/pdf' ||
+        file.type === 'application/epub+zip' ||
+        /\.pdf$/i.test(file.name) ||
+        /\.epub$/i.test(file.name);
+      if (ok) {
         const reader = new FileReader();
         reader.onload = (event) => {
-          const arrayBuffer = event.target.result;
-          const uint8Array = new Uint8Array(arrayBuffer);
+          const ab = event.target.result;
           fileNameEl.textContent = file.name;
-          loadPDF(uint8Array);
+          const kind = classifyPath(file.name);
+          if (kind === 'epub') {
+            void loadEPUB(ab, null);
+          } else {
+            void loadPDF(ab, null);
+          }
         };
         reader.readAsArrayBuffer(file);
       } else {
-        statusText.textContent = '请选择 PDF 文件';
+        statusText.textContent = '请选择 PDF 或 EPUB 文件';
       }
     }
   });
 
   window.addEventListener('resize', () => {
-    if (pdfDoc) {
+    if (viewerKind === 'epub' && epubRendition) {
+      try {
+        epubRendition.resize();
+      } catch (_) {}
+    } else if (pdfDoc) {
       renderPage(currentPage).catch((err) => console.error(err));
     }
     if (shelfView.classList.contains('active')) {
@@ -965,4 +1577,18 @@ function setupEventListeners() {
   });
 }
 
-document.addEventListener('DOMContentLoaded', setupEventListeners);
+function bootRenderer() {
+  try {
+    setupEventListeners();
+  } catch (err) {
+    console.error('bootRenderer:', err);
+    const st = document.getElementById('statusText');
+    if (st) st.textContent = '界面初始化失败：' + (err && err.message ? err.message : String(err));
+  }
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', bootRenderer);
+} else {
+  queueMicrotask(bootRenderer);
+}
