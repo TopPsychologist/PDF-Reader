@@ -1,7 +1,7 @@
 {
   "appId": "com.pdfreader.mac",
   "productName": "PDF Reader",
-  "icon": "build/icon.png",
+  "icon": "icons/icon.png",
   "directories": {
     "output": "dist"
   },

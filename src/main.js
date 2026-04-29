@@ -82,7 +82,7 @@ function readFolderShelfFiles(folderPath) {
 }
 
 function getAppIconPath() {
-  const iconPath = path.join(__dirname, '../build/icon.png');
+  const iconPath = path.join(__dirname, '../icons/icon.png');
   return fs.existsSync(iconPath) ? iconPath : undefined;
 }
 

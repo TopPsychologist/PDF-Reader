@@ -1,6 +1,6 @@
 # PDF Reader for macOS Intel
 
-轻量级电子书阅读器（**PDF + EPUB**），基于 Electron、PDF.js 与 Epub.js：单页/分页阅读、书架、阅读书签与进度、多套界面主题（含浅色）、应用内设置；书架支持 PDF / EPUB 封面预览；开发与打包使用 **`build/icon.png`** 作为窗口与 Dock 图标。
+轻量级电子书阅读器（**PDF + EPUB**），基于 Electron、PDF.js 与 Epub.js：单页/分页阅读、书架、阅读书签与进度、多套界面主题（含浅色）、应用内设置；书架支持 PDF / EPUB 封面预览；开发与打包使用 **`icons/icon.png`** 作为窗口与 Dock 图标。
 
 ## 功能特性
 
@@ -82,11 +82,11 @@ npm run dev
 npm start
 ```
 
-须在图形会话中启动 Electron。**`build/icon.png`** 存在时用作窗口图标与 Dock 图标参考。
+须在图形会话中启动 Electron。**`icons/icon.png`** 存在时用作窗口图标与 Dock 图标参考。
 
 ## 构建打包
 
-配置见 **`electron-builder.json`**（**`icon`: `build/icon.png`**）与 **`package.json`** 的 `scripts`。
+配置见 **`electron-builder.json`**（**`icon`: `icons/icon.png`**）与 **`package.json`** 的 `scripts`。
 
 ### zip
 
@@ -117,8 +117,8 @@ pdf-reader-mac/
 │   ├── renderer.js      # 渲染进程 UI / PDF / EPUB（ES Module）
 │   └── vendor/
 │       └── epub-browser.mjs   # esbuild 打好的 Epub.js（勿手改；见 bundle:epub）
-├── build/
-│   └── icon.png         # 应用图标（可纳入 Git；参见 .gitignore 说明）
+├── icons/
+│   └── icon.png         # 应用图标（Dock / 打包；直接可 git add）
 ├── dist/                # 构建产出（不入库）
 ├── electron-builder.json
 ├── package.json
@@ -177,9 +177,9 @@ pdf-reader-mac/
 
 ## 构建、图标与版本库
 
-- **`electron-builder.json`**：配置 `appId`、`productName`、`icon`（指向 **`build/icon.png`**）。  
-- 推荐放置 **不小于 512×512** 的 **`build/icon.png`**。开发时 **`main.js`** 在文件存在时使用 **Dock** 与 **BrowserWindow** 图标。  
-- **`.gitignore`** 中通用的 **`**/build/`**（来自 Python 等段）会忽略本仓库根目录的 **`build/`**；因此在 **`.gitignore` 文件末尾**增加了对 **`build/`**、**`build/icon.png`** 的否定规则，使 **`build/icon.png`** 可以被 Git 追踪。添加或更新图标后执行 **`git add build/icon.png`** 即可；若仍被忽略，可使用 **`git add -f build/icon.png`**。
+- **`electron-builder.json`**：配置 `appId`、`productName`、`icon`（指向 **`icons/icon.png`**）。  
+- 推荐放置 **不小于 512×512** 的 **`icons/icon.png`**。开发时 **`main.js`** 在文件存在时使用 **Dock** 与 **BrowserWindow** 图标。  
+- 应用图标放在 **`icons/icon.png`**。目录名 **`icons/`** 不会被通用 **`**/build/`** 规则忽略，**可直接 `git add icons/icon.png`**；不必再依赖 **`!`** 解除忽略。
 
 ## 常见问题
 

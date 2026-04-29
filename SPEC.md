@@ -16,7 +16,7 @@
 | 宿主 | Electron 28.x，`BrowserWindow`，`contextIsolation` + preload；`webPreferences` 含 `preload`、`webSecurity`、`sandbox` 等（以 `main.js` 为准） |
 | PDF | PDF.js 4.x（`pdfjs-dist/legacy`，渲染进程 `import()`，`GlobalWorkerOptions.workerSrc`） |
 | EPUB | npm `epubjs`；运行时装载 `public/vendor/epub-browser.mjs`（`npm run bundle:epub` + esbuild）；**不在 preload 内向渲染进程传递 Epub.js `Book` 实例**，避免 contextBridge 克隆损坏；后备：主进程读 `public/vendor/epub-browser.mjs` → IPC → 渲染进程 Blob URL 动态 import |
-| 打包 | electron-builder，`electron-builder.json`，`build/icon.png` |
+| 打包 | electron-builder，`electron-builder.json`，`icons/icon.png` |
 | UI | HTML5/CSS3，`public/renderer.js` ES Module |
 | 数据 | JSON，`app.getPath('userData')` 下同应用目录 |
 | EPUB 工具链 | esbuild（开发依赖）：`bundle:epub` 写入 `public/vendor/epub-browser.mjs` |
@@ -28,8 +28,7 @@
 
 ### 2.2 版本库与图标资源
 
-- 顶层模板 `.gitignore` 中的 `**/build/` 会屏蔽本仓库根的 `build/` 目录。
-- 本仓库在 **`.gitignore` 末尾**增加 `!/build/`、`!build/icon.png`，使命名后的 **`build/icon.png` 可被 Git 追踪**。添加文件后执行 `git add build/icon.png`；若仍被拒可 `git add -f build/icon.png`。
+- 应用图标路径为 **`icons/icon.png`**。目录名 **`icons/`** 不被通用 **`**/build/`** 规则匹配，**无需**在 `.gitignore` 中用 **`!`** 解除忽略；直接使用 **`git add icons/icon.png`** 即可纳入版本库。
 
 ## 3. 功能规格
 
@@ -91,7 +90,7 @@
 
 ### 3.11 应用图标与 Dock
 
-- [x] `build/icon.png`；electron-builder `icon`；开发时窗口与 Dock；**§2.2 Git 放行**。
+- [x] **`icons/icon.png`**；electron-builder `icon`；开发时窗口与 Dock；参见 **§2.2**。
 
 ## 4. UI/UX 结构（示意图）
 
@@ -156,7 +155,7 @@
 7. PDF 与 EPUB 均可打开与放回书架。  
 8. 工具栏缩放百分比可编辑并与实际缩放一致。  
 9. `npm run bundle:epub` 后存在 `public/vendor/epub-browser.mjs`。  
-10. `build/icon.png` 可按 `.gitignore` 否定规则纳入版本库。
+10. `icons/icon.png` 在版本库中常驻（路径 **`icons/`**，不受 **`**/build/`** 忽略）。
 
 ## 9. 非目标（当前版本）
 
