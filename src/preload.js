@@ -31,5 +31,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   addBookmark: (filePath, page, label) => ipcRenderer.invoke('add-bookmark', filePath, page, label),
   removeBookmark: (filePath, bookmarkId) => ipcRenderer.invoke('remove-bookmark', filePath, bookmarkId),
   getAllBookmarks: () => ipcRenderer.invoke('get-all-bookmarks'),
-  getShelfFolder: () => ipcRenderer.invoke('get-shelf-folder')
+  getShelfFolder: () => ipcRenderer.invoke('get-shelf-folder'),
+  getTheme: () => ipcRenderer.invoke('get-theme'),
+  setTheme: (themeId) => ipcRenderer.invoke('set-theme', themeId),
+  onThemeChanged: (callback) => {
+    ipcRenderer.on('theme-changed', (event, themeId) => callback(themeId));
+  }
 });

@@ -122,6 +122,13 @@
         </svg>
       </button>
       </div>
+
+      <button id="settingsBtn" type="button" class="toolbar-btn toolbar-settings-btn" title="设置">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="3"/>
+          <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.82l-.06-.06a1.65 1.65 0 00-.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.6a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9c.091 0 .19.027.273.082H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/>
+        </svg>
+      </button>
     </div>
 
     <div class="content" id="content">
@@ -189,6 +196,36 @@
       <div id="loadingOverlay" class="loading-overlay">
         <div class="loading-spinner"></div>
         <span id="loadingText" class="loading-text">正在加载...</span>
+      </div>
+    </div>
+
+    <div id="settingsOverlay" class="settings-overlay" role="presentation" aria-hidden="true">
+      <div id="settingsBackdrop" class="settings-backdrop"></div>
+      <div class="settings-modal" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+        <div class="settings-modal-header">
+          <h2 id="settingsTitle" class="settings-modal-title">设置</h2>
+          <button type="button" id="closeSettingsBtn" class="toolbar-btn settings-close-btn" aria-label="关闭">&times;</button>
+        </div>
+        <div class="settings-modal-body">
+          <h3 class="settings-section-title">主题</h3>
+          <div class="theme-list" id="themeList" role="listbox">
+            <button type="button" role="option" class="theme-row" data-theme="midnight" aria-selected="false">
+              <span class="theme-check" aria-hidden="true">✓</span><span class="theme-name">午夜蓝</span>
+            </button>
+            <button type="button" role="option" class="theme-row" data-theme="graphite" aria-selected="false">
+              <span class="theme-check" aria-hidden="true">✓</span><span class="theme-name">石墨灰</span>
+            </button>
+            <button type="button" role="option" class="theme-row" data-theme="ocean" aria-selected="false">
+              <span class="theme-check" aria-hidden="true">✓</span><span class="theme-name">深海青</span>
+            </button>
+            <button type="button" role="option" class="theme-row" data-theme="amber" aria-selected="false">
+              <span class="theme-check" aria-hidden="true">✓</span><span class="theme-name">琥珀棕</span>
+            </button>
+            <button type="button" role="option" class="theme-row" data-theme="paper" aria-selected="false">
+              <span class="theme-check" aria-hidden="true">✓</span><span class="theme-name">日间纸本</span>
+            </button>
+          </div>
+        </div>
       </div>
     </div>
 

@@ -7,16 +7,44 @@ let mainWindow;
 const userDataPath = app.getPath('userData');
 const storagePath = path.join(userDataPath, 'pdf-reader-data.json');
 
+const THEME_IDS = ['midnight', 'graphite', 'ocean', 'amber', 'paper'];
+const THEME_WINDOW_BG = {
+  midnight: '#1a1a2e',
+  graphite: '#17181c',
+  ocean: '#0b1220',
+  amber: '#221c12',
+  paper: '#eef0f4'
+};
+const THEME_MENU_ITEMS = [
+  ['midnight', '午夜蓝'],
+  ['graphite', '石墨灰'],
+  ['ocean', '深海青'],
+  ['amber', '琥珀棕'],
+  ['paper', '日间纸本']
+];
+
 function getStorageData() {
+  const defaults = {
+    readingPositions: {},
+    bookmarks: {},
+    shelfFolder: null,
+    theme: 'midnight'
+  };
   try {
     if (fs.existsSync(storagePath)) {
-      const data = fs.readFileSync(storagePath, 'utf8');
-      return JSON.parse(data);
+      const raw = fs.readFileSync(storagePath, 'utf8');
+      const data = JSON.parse(raw);
+      return {
+        ...defaults,
+        ...data,
+        readingPositions: data.readingPositions || {},
+        bookmarks: data.bookmarks || {}
+      };
     }
   } catch (error) {
     console.error('Error reading storage:', error);
   }
-  return { readingPositions: {}, bookmarks: {}, shelfFolder: null };
+  return { ...defaults };
 }
 
 function saveStorageData(data) {
@@ -67,6 +95,8 @@ function setDockIcon() {
 
 function createWindow() {
   const iconPath = getAppIconPath();
+  const initialTheme = getStorageData().theme || 'midnight';
+  const bgColor = THEME_WINDOW_BG[THEME_IDS.includes(initialTheme) ? initialTheme : 'midnight'] || '#1a1a2e';
 
   mainWindow = new BrowserWindow({
     width: 1200,
@@ -78,7 +108,7 @@ function createWindow() {
       contextIsolation: true,
       preload: path.join(__dirname, 'preload.js')
     },
-    backgroundColor: '#1a1a2e',
+    backgroundColor: bgColor,
     show: false,
     icon: iconPath
   });
@@ -110,6 +140,20 @@ function safeSend(channel, ...args) {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send(channel, ...args);
   }
+}
+
+function setAppTheme(themeId) {
+  if (!THEME_IDS.includes(themeId)) return;
+  const storage = getStorageData();
+  storage.theme = themeId;
+  saveStorageData(storage);
+  safeSend('theme-changed', themeId);
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    try {
+      mainWindow.setBackgroundColor(THEME_WINDOW_BG[themeId] || '#1a1a2e');
+    } catch (e) {}
+  }
+  createMenu();
 }
 
 function createMenu() {
@@ -173,6 +217,20 @@ function createMenu() {
           label: '显示 PDF 目录侧栏（文档大纲结构）…',
           accelerator: 'CmdOrCtrl+Shift+T',
           click: () => safeSend('toggle-toc-sidebar')
+        },
+        { type: 'separator' },
+        {
+          label: '主题',
+          submenu: (() => {
+            const cur = getStorageData().theme || 'midnight';
+            const normalized = THEME_IDS.includes(cur) ? cur : 'midnight';
+            return THEME_MENU_ITEMS.map(([id, label]) => ({
+              label,
+              type: 'radio',
+              checked: normalized === id,
+              click: () => setAppTheme(id)
+            }));
+          })()
         },
         { type: 'separator' },
         {
@@ -261,7 +319,7 @@ ipcMain.handle('open-folder-dialog', async () => {
 
 ipcMain.handle('read-pdf-file', async (event, filePath) => {
   try {
-    const fileBuffer = fs.readFileSync(filePath);
+    const fileBuffer = await fs.promises.readFile(filePath);
     return {
       path: filePath,
       name: path.basename(filePath),
@@ -325,6 +383,17 @@ ipcMain.handle('get-all-bookmarks', async () => {
 ipcMain.handle('get-shelf-folder', async () => {
   const storage = getStorageData();
   return storage.shelfFolder;
+});
+
+ipcMain.handle('get-theme', async () => {
+  const storage = getStorageData();
+  const id = storage.theme || 'midnight';
+  return THEME_IDS.includes(id) ? id : 'midnight';
+});
+
+ipcMain.handle('set-theme', async (event, themeId) => {
+  setAppTheme(themeId);
+  return true;
 });
 
 app.whenReady().then(() => {

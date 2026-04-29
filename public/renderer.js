@@ -70,11 +70,25 @@ const bookmarkIndicator = document.getElementById('bookmarkIndicator');
 const loadingOverlay = document.getElementById('loadingOverlay');
 const loadingText = document.getElementById('loadingText');
 const toolbarReading = document.getElementById('toolbarReading');
+const settingsBtn = document.getElementById('settingsBtn');
+const settingsOverlay = document.getElementById('settingsOverlay');
+const closeSettingsBtn = document.getElementById('closeSettingsBtn');
+const settingsBackdrop = document.getElementById('settingsBackdrop');
+
+const THEME_IDS = ['midnight', 'graphite', 'ocean', 'amber', 'paper'];
+
+/** 书架封面：固定外壳尺寸，缩略图在盒内按比例「适应」缩放，避免窄长页面撑成条状 */
+const SHELF_COVER_BOX_CSS_W = 100;
+const SHELF_COVER_BOX_CSS_H = 140;
 
 function showLoading(text = '正在加载...') {
   loadingText.textContent = text;
   loadingOverlay.classList.add('active');
   isLoading = true;
+}
+
+function setLoadingMessage(text) {
+  if (loadingText) loadingText.textContent = text;
 }
 
 function hideLoading() {
@@ -149,9 +163,63 @@ function getToolbarHeight() {
   return toolbar.offsetHeight + statusbar.offsetHeight;
 }
 
+function syncThemeSelection(themeId) {
+  const id = THEME_IDS.includes(themeId) ? themeId : 'midnight';
+  document.querySelectorAll('.theme-row').forEach((row) => {
+    const sel = row.dataset.theme === id;
+    row.classList.toggle('is-selected', sel);
+    row.setAttribute('aria-selected', sel ? 'true' : 'false');
+  });
+}
+
+function applyThemeVisual(themeId) {
+  const id = THEME_IDS.includes(themeId) ? themeId : 'midnight';
+  document.documentElement.setAttribute('data-theme', id);
+  syncThemeSelection(id);
+}
+
+function openSettings() {
+  if (!settingsOverlay) return;
+  const raw = document.documentElement.getAttribute('data-theme');
+  const t = THEME_IDS.includes(raw) ? raw : 'midnight';
+  syncThemeSelection(t);
+  settingsOverlay.classList.add('visible');
+  settingsOverlay.setAttribute('aria-hidden', 'false');
+}
+
+function closeSettings() {
+  if (!settingsOverlay) return;
+  settingsOverlay.classList.remove('visible');
+  settingsOverlay.setAttribute('aria-hidden', 'true');
+}
+
+async function initThemeFromStorage() {
+  try {
+    const t = await window.electronAPI.getTheme();
+    applyThemeVisual(t);
+  } catch (e) {
+    applyThemeVisual('midnight');
+  }
+}
+
+async function loadDeferredOutline() {
+  const doc = pdfDoc;
+  if (!doc) return;
+  try {
+    const outline = await doc.getOutline();
+    if (pdfDoc !== doc) return;
+    currentToc = await parseOutline(outline, doc);
+    if (pdfDoc !== doc) return;
+  } catch (e) {
+    console.log('Outline unavailable:', e);
+    currentToc = [];
+  }
+  updateTocButton();
+}
+
 async function loadPDF(data, filePath = null) {
   try {
-    showLoading('正在加载 PDF...');
+    showLoading('正在解析 PDF…');
     await ensurePdfJsLib();
 
     if (pdfDoc) {
@@ -162,8 +230,20 @@ async function loadPDF(data, filePath = null) {
     const loadingTask = pdfjsLib.getDocument({
       data,
       cMapUrl: '../node_modules/pdfjs-dist/cmaps/',
-      cMapPacked: true,
+      cMapPacked: true
     });
+
+    loadingTask.onProgress = (evt) => {
+      if (!isLoading || !evt) return;
+      const loaded = evt.loaded ?? 0;
+      const total = evt.total ?? 0;
+      if (total > 0) {
+        const pct = Math.min(99, Math.round((100 * loaded) / total));
+        setLoadingMessage(`正在解析 PDF… ${pct}%`);
+      } else {
+        setLoadingMessage('正在解析 PDF…');
+      }
+    };
 
     pdfDoc = await loadingTask.promise;
     totalPages = pdfDoc.numPages;
@@ -172,32 +252,35 @@ async function loadPDF(data, filePath = null) {
 
     let startPage = 1;
     if (filePath) {
-      const savedPosition = await window.electronAPI.getReadingPosition(filePath);
+      const [savedPosition, bookmarks] = await Promise.all([
+        window.electronAPI.getReadingPosition(filePath),
+        window.electronAPI.getBookmarks(filePath)
+      ]);
       if (savedPosition) {
         startPage = savedPosition;
       }
-      currentBookmarks = await window.electronAPI.getBookmarks(filePath);
+      currentBookmarks = bookmarks || [];
+    } else {
+      currentBookmarks = [];
     }
 
     currentPage = startPage;
     currentToc = [];
 
-    try {
-      const outline = await pdfDoc.getOutline();
-      currentToc = await parseOutline(outline, pdfDoc);
-    } catch (e) {
-      console.log('No outline available');
-      currentToc = [];
-    }
-
     showPdfView();
+    setLoadingMessage('正在渲染页面…');
+
     await renderPage(currentPage);
     updateUI();
     updateBookmarkIndicator();
     updateTocButton();
 
     hideLoading();
-    statusText.textContent = '加载完成';
+    statusText.textContent = `已打开 · 共 ${totalPages} 页`;
+
+    loadDeferredOutline().catch((e) =>
+      console.warn('Deferred outline:', e)
+    );
   } catch (error) {
     console.error('Error loading PDF:', error);
     hideLoading();
@@ -501,7 +584,7 @@ async function renderShelfWithCovers(files) {
     `;
 
     item.addEventListener('click', async () => {
-      showLoading('正在加载...');
+      showLoading('正在读取文件…');
       const pdfData = await window.electronAPI.readPdfFile(file.path);
       if (pdfData) {
         fileNameEl.textContent = file.name;
@@ -546,17 +629,23 @@ async function renderCoversForVisibleItems() {
         const loadingTask = pdfjsLib.getDocument({ data: pdfData.data });
         const pdf = await loadingTask.promise;
         const page = await pdf.getPage(1);
-        const thumbCssScale = 0.5;
         const dpr = Math.min(getCssPixelRatio(), 2);
         const baseVp = page.getViewport({ scale: 1 });
-        const renderVp = page.getViewport({ scale: thumbCssScale * dpr });
-        const cssW = Math.floor(thumbCssScale * baseVp.width);
-        const cssH = Math.floor(thumbCssScale * baseVp.height);
+        const pw = baseVp.width;
+        const ph = baseVp.height;
+        const scaleCss = Math.min(
+          SHELF_COVER_BOX_CSS_W / pw,
+          SHELF_COVER_BOX_CSS_H / ph
+        );
+        const cssW = Math.max(1, Math.floor(pw * scaleCss));
+        const cssH = Math.max(1, Math.floor(ph * scaleCss));
+
+        const renderVp = page.getViewport({ scale: scaleCss * dpr });
 
         const canvas = document.createElement('canvas');
         canvas.className = 'shelf-cover-canvas';
-        canvas.width = Math.floor(renderVp.width);
-        canvas.height = Math.floor(renderVp.height);
+        canvas.width = Math.max(1, Math.floor(renderVp.width));
+        canvas.height = Math.max(1, Math.floor(renderVp.height));
         canvas.style.width = cssW + 'px';
         canvas.style.height = cssH + 'px';
 
@@ -637,7 +726,7 @@ function renderShelf(files) {
     `;
 
     item.addEventListener('click', async () => {
-      showLoading('正在加载...');
+      showLoading('正在读取文件…');
       const pdfData = await window.electronAPI.readPdfFile(file.path);
       if (pdfData) {
         fileNameEl.textContent = file.name;
@@ -658,6 +747,25 @@ function setupEventListeners() {
     statusText.textContent = 'preload 未注入：请使用 Electron 启动（不要用浏览器直接打开 index.html）。';
     return;
   }
+
+  void initThemeFromStorage();
+  window.electronAPI.onThemeChanged((id) => applyThemeVisual(id));
+
+  if (settingsBtn) settingsBtn.addEventListener('click', () => openSettings());
+  if (closeSettingsBtn) closeSettingsBtn.addEventListener('click', closeSettings);
+  if (settingsBackdrop) settingsBackdrop.addEventListener('click', closeSettings);
+
+  document.querySelectorAll('.theme-row').forEach((row) => {
+    row.addEventListener('click', async () => {
+      const id = row.dataset.theme;
+      if (!THEME_IDS.includes(id)) return;
+      try {
+        await window.electronAPI.setTheme(id);
+      } catch (e) {
+        console.error(e);
+      }
+    });
+  });
 
   const requiredRefs = [
     ['openBtn', openBtn],
@@ -733,6 +841,10 @@ function setupEventListeners() {
   });
 
   document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && settingsOverlay?.classList.contains('visible')) {
+      closeSettings();
+      return;
+    }
     if (e.target.tagName === 'INPUT') return;
     if (!pdfDoc) return;
 
@@ -751,7 +863,7 @@ function setupEventListeners() {
 
   window.electronAPI.onFileOpened(async (data) => {
     if (data) {
-      showLoading('正在读取文件...');
+      showLoading('正在读取文件…');
       const pdfData = await window.electronAPI.readPdfFile(data.path);
       if (pdfData) {
         fileNameEl.textContent = data.name;
@@ -835,7 +947,6 @@ function setupEventListeners() {
           const uint8Array = new Uint8Array(arrayBuffer);
           fileNameEl.textContent = file.name;
           loadPDF(uint8Array);
-          statusText.textContent = '正在加载...';
         };
         reader.readAsArrayBuffer(file);
       } else {
