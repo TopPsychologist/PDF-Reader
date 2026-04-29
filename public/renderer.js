@@ -162,6 +162,12 @@ const settingsBtn = document.getElementById('settingsBtn');
 const settingsOverlay = document.getElementById('settingsOverlay');
 const closeSettingsBtn = document.getElementById('closeSettingsBtn');
 const settingsBackdrop = document.getElementById('settingsBackdrop');
+const bookmarkLabelOverlay = document.getElementById('bookmarkLabelOverlay');
+const bookmarkLabelBackdrop = document.getElementById('bookmarkLabelBackdrop');
+const bookmarkLabelInput = document.getElementById('bookmarkLabelInput');
+const bookmarkLabelOkBtn = document.getElementById('bookmarkLabelOkBtn');
+const bookmarkLabelCancelBtn = document.getElementById('bookmarkLabelCancelBtn');
+const bookmarkLabelCloseBtn = document.getElementById('bookmarkLabelCloseBtn');
 
 /**
  * 若曾在 index.html 中误粘贴 preload 片段或内联 script 被提早截断，
@@ -222,6 +228,76 @@ function escapeHtml(raw) {
   return d.innerHTML;
 }
 
+/**
+ * Electron / Chromium 中 window.prompt 常不可用或立即返回 null，必须用自定义对话框。
+ * @param {string} defaultLabel
+ * @returns {Promise<string|null>} 确定时为名称字符串；取消为 null
+ */
+function promptBookmarkLabel(defaultLabel) {
+  const overlay = bookmarkLabelOverlay;
+  const input = bookmarkLabelInput;
+  const okBtn = bookmarkLabelOkBtn;
+  const cancelBtn = bookmarkLabelCancelBtn;
+  const closeBtn = bookmarkLabelCloseBtn;
+  const backdrop = bookmarkLabelBackdrop;
+  if (!overlay || !input || !okBtn || !cancelBtn || !closeBtn || !backdrop) {
+    return Promise.resolve(defaultLabel);
+  }
+
+  return new Promise((resolve) => {
+    input.value = defaultLabel;
+
+    const cleanup = () => {
+      overlay.classList.remove('visible');
+      overlay.setAttribute('aria-hidden', 'true');
+      okBtn.removeEventListener('click', onOk);
+      cancelBtn.removeEventListener('click', onCancel);
+      closeBtn.removeEventListener('click', onCancel);
+      backdrop.removeEventListener('click', onCancel);
+      input.removeEventListener('keydown', onKeydown);
+    };
+
+    const done = (value) => {
+      cleanup();
+      resolve(value);
+    };
+
+    const onOk = () => {
+      const raw = input.value.trim();
+      done(raw || defaultLabel);
+    };
+
+    const onCancel = () => done(null);
+
+    const onKeydown = (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        onOk();
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        onCancel();
+      }
+    };
+
+    overlay.classList.add('visible');
+    overlay.setAttribute('aria-hidden', 'false');
+
+    okBtn.addEventListener('click', onOk);
+    cancelBtn.addEventListener('click', onCancel);
+    closeBtn.addEventListener('click', onCancel);
+    backdrop.addEventListener('click', onCancel);
+    input.addEventListener('keydown', onKeydown);
+
+    queueMicrotask(() => {
+      try {
+        input.focus();
+        input.select();
+      } catch (_) {}
+    });
+  });
+}
+
 function destroyEpubViewer() {
   if (epubRendition) {
     try {
@@ -268,6 +344,7 @@ function showPdfView() {
   if (toolbarReading) toolbarReading.classList.remove('hidden');
   fileNameEl.classList.remove('hidden');
   enablePdfControls(true);
+  setReadingNavChrome(true);
 }
 
 function showShelfView() {
@@ -286,6 +363,7 @@ function showShelfView() {
   if (toolbarReading) toolbarReading.classList.add('hidden');
   fileNameEl.classList.add('hidden');
   enablePdfControls(false);
+  setReadingNavChrome(false);
 }
 
 function showWelcome() {
@@ -304,6 +382,7 @@ function showWelcome() {
   if (toolbarReading) toolbarReading.classList.add('hidden');
   fileNameEl.classList.add('hidden');
   enablePdfControls(false);
+  setReadingNavChrome(false);
 }
 
 function showEpubReaderView() {
@@ -321,6 +400,7 @@ function showEpubReaderView() {
   if (toolbarReading) toolbarReading.classList.remove('hidden');
   fileNameEl.classList.remove('hidden');
   epubToolbarState();
+  setReadingNavChrome(true);
 }
 
 function epubToolbarState() {
@@ -373,7 +453,9 @@ function isCurrentPageBookmarked() {
     if (!cfi) return false;
     return currentBookmarks.some((b) => b.cfi && b.cfi === cfi);
   }
-  return currentBookmarks.some((b) => b.page === currentPage);
+  return currentBookmarks.some(
+    (b) => b.page != null && Number(b.page) === Number(currentPage)
+  );
 }
 
 function updateBookmarkIndicator() {
@@ -513,6 +595,7 @@ async function loadPDF(data, filePath = null) {
     console.error('Error loading PDF:', error);
     hideLoading();
     statusText.textContent = '加载失败: ' + error.message;
+    setReadingNavChrome(false);
   }
 }
 
@@ -604,6 +687,7 @@ async function loadEPUB(binary, filePath = null) {
     hideLoading();
     viewerKind = 'none';
     destroyEpubViewer();
+    setReadingNavChrome(false);
     statusText.textContent = `EPUB 加载失败：${err && err.message ? err.message : String(err)}`;
   }
 }
@@ -615,46 +699,61 @@ function extractBaseName(p) {
 
 async function parseOutline(outline, pdf) {
   const result = [];
-  if (!outline) return result;
 
-  function processItem(item, destPage) {
-    if (!item) return;
-
-    if (item.title) {
-      result.push({
-        title: item.title,
-        page: destPage,
-        items: []
-      });
+  async function resolveItemDestToPage(item) {
+    let page = 1;
+    if (!item || !item.dest) return page;
+    try {
+      const dest =
+        typeof item.dest === 'string'
+          ? await pdf.getDestination(item.dest)
+          : item.dest;
+      if (dest && dest.length) {
+        const pageIdx = await pdf.getPageIndex(dest[0]);
+        if (typeof pageIdx === 'number' && pageIdx >= 0) {
+          page = pageIdx + 1;
+        }
+      }
+    } catch (e) {
+      console.warn('大纲条目解析目标页失败:', e);
     }
+    return page;
+  }
 
-    if (item.items) {
-      for (const subItem of item.items) {
-        processItem(subItem, destPage);
+  async function walk(items) {
+    if (!items || !items.length) return;
+    for (const item of items) {
+      const page = await resolveItemDestToPage(item);
+      if (item.title) {
+        result.push({
+          title: item.title,
+          page
+        });
+      }
+      if (item.items && item.items.length) {
+        await walk(item.items);
       }
     }
   }
 
-  for (const item of outline) {
-    let page = 1;
-    if (item.dest) {
-      try {
-        const dest =
-          typeof item.dest === 'string'
-            ? await pdf.getDestination(item.dest)
-            : item.dest;
-        if (dest && dest.length) {
-          const pageIdx = await pdf.getPageIndex(dest[0]);
-          if (typeof pageIdx === 'number') {
-            page = pageIdx + 1;
-          }
-        }
-      } catch (e) {}
-    }
-    processItem(item, page);
-  }
-
+  await walk(outline || []);
   return result;
+}
+
+async function linkAnnotationDestToPage(annotation, pdf) {
+  if (!annotation.dest) return null;
+  try {
+    const dest =
+      typeof annotation.dest === 'string'
+        ? await pdf.getDestination(annotation.dest)
+        : annotation.dest;
+    if (dest && dest.length) {
+      const idx = await pdf.getPageIndex(dest[0]);
+      if (typeof idx === 'number' && idx >= 0) return idx + 1;
+    }
+  } catch (e) {}
+  if (typeof annotation.pageNumber === 'number') return annotation.pageNumber;
+  return null;
 }
 
 async function loadTocForPage(pageNum) {
@@ -663,14 +762,21 @@ async function loadTocForPage(pageNum) {
   try {
     const page = await pdfDoc.getPage(pageNum);
     const annotations = await page.getAnnotations();
-    const dests = annotations.filter(a => a.subtype === 'Link' && a.dest);
+    const links = annotations.filter((a) => a.subtype === 'Link' && a.dest);
 
-    if (dests && dests.length > 0) {
-      return dests.map(d => ({
-        title: d.title || `Page ${d.pageNumber}`,
-        page: d.pageNumber
-      }));
+    if (!links.length) return [];
+
+    const out = [];
+    for (const ann of links) {
+      const targetPage = await linkAnnotationDestToPage(ann, pdfDoc);
+      if (targetPage != null) {
+        out.push({
+          title: ann.title || `第 ${targetPage} 页`,
+          page: targetPage
+        });
+      }
     }
+    return out;
   } catch (e) {
     console.log('Error loading TOC:', e);
   }
@@ -929,6 +1035,18 @@ function stripMarkup(s) {
   return String(s).replace(/<[^>]*>/gi, '').trim();
 }
 
+/** 阅读书籍时隐藏「打开」「书架」工具栏按钮，并同步系统菜单栏「文件」中的对应项 */
+function setReadingNavChrome(reading) {
+  const hide = !!reading;
+  if (openBtn) openBtn.classList.toggle('hidden', hide);
+  if (shelfBtn) shelfBtn.classList.toggle('hidden', hide);
+  try {
+    if (window.electronAPI && typeof window.electronAPI.setReadingMode === 'function') {
+      void window.electronAPI.setReadingMode(hide);
+    }
+  } catch (_) {}
+}
+
 function renderToc() {
   if (viewerKind === 'epub') {
     void renderEpubNavigation();
@@ -968,7 +1086,8 @@ function renderTocItems(items) {
       <span class="toc-item-page">${item.page}</span>
     `;
     div.addEventListener('click', () => {
-      goToPage(item.page);
+      const n = Number(item.page);
+      goToPage(Number.isFinite(n) ? n : 1);
       tocSidebar.classList.remove('active');
     });
     tocList.appendChild(div);
@@ -995,8 +1114,9 @@ function renderBookmarks() {
     item.querySelector('.bookmark-item-label').addEventListener('click', () => {
       if (bookmark.cfi && epubRendition) {
         epubRendition.display(bookmark.cfi).catch(() => {});
-      } else if (bookmark.page) {
-        goToPage(bookmark.page);
+      } else if (bookmark.page != null) {
+        const p = Number(bookmark.page);
+        goToPage(Number.isFinite(p) ? p : bookmark.page);
       }
       bookmarkSidebar.classList.remove('active');
     });
@@ -1014,33 +1134,56 @@ function renderBookmarks() {
 }
 
 async function addBookmark() {
-  if (!currentPdfPath) return;
+  try {
+    if (viewerKind === 'epub') {
+      if (!epubRendition || !currentPdfPath) {
+        statusText.textContent =
+          '无法保存书签：请通过「打开」或书架打开电子书后再添加（需要磁盘路径才能写入书签库）。';
+        return;
+      }
+      const loc = epubRendition.currentLocation?.();
+      const cfi = loc?.start?.cfi;
+      if (!cfi) return;
+      const label = await promptBookmarkLabel('阅读位置');
+      if (label === null) return;
+      const bookmark = await window.electronAPI.addBookmark(currentPdfPath, { cfi }, label);
+      currentBookmarks.push(bookmark);
+      renderBookmarks();
+      bookmarkSidebar.classList.add('active');
+      tocSidebar.classList.remove('active');
+      updateBookmarkIndicator();
+      statusText.textContent = `已添加书签: ${label}`;
+      return;
+    }
 
-  if (viewerKind === 'epub') {
-    if (!epubRendition) return;
-    const loc = epubRendition.currentLocation?.();
-    const cfi = loc?.start?.cfi;
-    if (!cfi) return;
-    const label = prompt('输入书签名称:', '阅读位置');
+    if (!pdfDoc) return;
+
+    if (!currentPdfPath) {
+      statusText.textContent =
+        '无法保存书签：请通过「打开」或书架打开 PDF（拖拽的文件若无法解析路径则无法持久化书签）。';
+      return;
+    }
+
+    const label = await promptBookmarkLabel(`第 ${currentPage} 页`);
     if (label === null) return;
-    const bookmark = await window.electronAPI.addBookmark(currentPdfPath, { cfi }, label);
+
+    const pageNum = Number(currentPage);
+    const bookmark = await window.electronAPI.addBookmark(
+      currentPdfPath,
+      Number.isFinite(pageNum) ? pageNum : currentPage,
+      label
+    );
     currentBookmarks.push(bookmark);
     renderBookmarks();
+    bookmarkSidebar.classList.add('active');
+    tocSidebar.classList.remove('active');
     updateBookmarkIndicator();
     statusText.textContent = `已添加书签: ${label}`;
-    return;
+  } catch (err) {
+    console.error('addBookmark', err);
+    statusText.textContent =
+      '书签保存失败：' + (err && err.message ? err.message : String(err));
   }
-
-  if (!pdfDoc) return;
-
-  const label = prompt('输入书签名称:', `第 ${currentPage} 页`);
-  if (label === null) return;
-
-  const bookmark = await window.electronAPI.addBookmark(currentPdfPath, currentPage, label);
-  currentBookmarks.push(bookmark);
-  renderBookmarks();
-  updateBookmarkIndicator();
-  statusText.textContent = `已添加书签: ${label}`;
 }
 
 async function renderShelfWithCovers(files) {
@@ -1454,6 +1597,11 @@ function setupEventListeners() {
   });
 
   document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && bookmarkLabelOverlay?.classList.contains('visible')) {
+      e.preventDefault();
+      bookmarkLabelCancelBtn?.click();
+      return;
+    }
     if (e.key === 'Escape' && settingsOverlay?.classList.contains('visible')) {
       closeSettings();
       return;
@@ -1586,10 +1734,12 @@ function setupEventListeners() {
           const ab = event.target.result;
           fileNameEl.textContent = file.name;
           const kind = classifyPath(file.name);
+          /** Electron 下从系统拖拽的文件通常带 path，便于书签/进度持久化 */
+          const droppedPath = typeof file.path === 'string' && file.path.length > 0 ? file.path : null;
           if (kind === 'epub') {
-            void loadEPUB(ab, null);
+            void loadEPUB(ab, droppedPath);
           } else {
-            void loadPDF(ab, null);
+            void loadPDF(ab, droppedPath);
           }
         };
         reader.readAsArrayBuffer(file);

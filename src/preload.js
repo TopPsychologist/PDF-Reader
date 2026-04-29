@@ -45,6 +45,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getShelfFolder: () => ipcRenderer.invoke('get-shelf-folder'),
   getTheme: () => ipcRenderer.invoke('get-theme'),
   setTheme: (themeId) => ipcRenderer.invoke('set-theme', themeId),
+  /** 阅读书籍时为 true，用于隐藏工具栏「打开 / 书架」并同步应用菜单 */
+  setReadingMode: (reading) => ipcRenderer.invoke('set-reading-mode', reading),
   onThemeChanged: (callback) => {
     ipcRenderer.on('theme-changed', (event, themeId) => callback(themeId));
   }

@@ -174,6 +174,42 @@ html, body {
   display: flex;
 }
 
+/** 高于加载层与侧栏，确保书签命名框可点 */
+.bookmark-label-overlay {
+  z-index: 120;
+}
+
+.bookmark-label-field-label {
+  display: block;
+  margin: 0 0 8px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-dim);
+}
+
+.bookmark-label-input {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background-color: var(--primary-bg);
+  color: var(--text);
+  font-size: 14px;
+}
+
+.bookmark-label-input:focus {
+  outline: none;
+  border-color: var(--accent, #6366f1);
+}
+
+.bookmark-label-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  margin-top: 18px;
+}
+
 .settings-backdrop {
   position: absolute;
   inset: 0;

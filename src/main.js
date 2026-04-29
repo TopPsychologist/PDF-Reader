@@ -4,6 +4,9 @@ const fs = require('fs');
 
 let mainWindow;
 
+/** 阅读书籍时为 true，用于隐藏「打开 / 书架」相关菜单项 */
+let readingModeActive = false;
+
 const userDataPath = app.getPath('userData');
 const storagePath = path.join(userDataPath, 'pdf-reader-data.json');
 
@@ -52,6 +55,16 @@ function saveStorageData(data) {
     fs.writeFileSync(storagePath, JSON.stringify(data, null, 2), 'utf8');
   } catch (error) {
     console.error('Error saving storage:', error);
+  }
+}
+
+/** 统一路径形态，避免同一文件因分隔符等差异产生多套书签 */
+function normalizeBookmarkPath(filePath) {
+  if (typeof filePath !== 'string' || filePath.length === 0) return filePath;
+  try {
+    return path.normalize(filePath);
+  } catch {
+    return filePath;
   }
 }
 
@@ -218,11 +231,10 @@ function setAppTheme(themeId) {
   createMenu();
 }
 
-function createMenu() {
-  const template = [
-    {
-      label: '文件',
-      submenu: [
+function getFileMenuTemplate() {
+  const openGroup = readingModeActive
+    ? []
+    : [
         {
           label: '打开…',
           accelerator: 'CmdOrCtrl+O',
@@ -233,23 +245,34 @@ function createMenu() {
           accelerator: 'CmdOrCtrl+Shift+O',
           click: () => openFolder()
         },
-        { type: 'separator' },
-        {
-          label: '返回书架',
-          accelerator: 'CmdOrCtrl+B',
-          click: () => {
-            if (mainWindow && !mainWindow.isDestroyed()) {
-              mainWindow.webContents.send('show-shelf');
-            }
-          }
-        },
-        { type: 'separator' },
-        {
-          label: '退出应用',
-          accelerator: 'CmdOrCtrl+Q',
-          click: () => app.quit()
+        { type: 'separator' }
+      ];
+
+  return [
+    ...openGroup,
+    {
+      label: '返回书架',
+      accelerator: 'CmdOrCtrl+B',
+      click: () => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('show-shelf');
         }
-      ]
+      }
+    },
+    { type: 'separator' },
+    {
+      label: '退出应用',
+      accelerator: 'CmdOrCtrl+Q',
+      click: () => app.quit()
+    }
+  ];
+}
+
+function createMenu() {
+  const template = [
+    {
+      label: '文件',
+      submenu: getFileMenuTemplate()
     },
     {
       label: '视图',
@@ -332,6 +355,12 @@ function createMenu() {
   const menu = Menu.buildFromTemplate(template);
   Menu.setApplicationMenu(menu);
 }
+
+ipcMain.handle('set-reading-mode', (event, reading) => {
+  readingModeActive = Boolean(reading);
+  createMenu();
+  return true;
+});
 
 async function openFile() {
   const result = await dialog.showOpenDialog(mainWindow, {
@@ -426,21 +455,46 @@ ipcMain.handle('save-reading-position', async (event, filePath, position) => {
 
 ipcMain.handle('get-bookmarks', async (event, filePath) => {
   const storage = getStorageData();
-  return storage.bookmarks[filePath] || [];
+  const k = normalizeBookmarkPath(filePath);
+  let list = storage.bookmarks[k];
+  if (list && list.length) return list;
+  /** 兼容旧版未 normalize 的键：迁移到规范化键 */
+  if (filePath && filePath !== k && storage.bookmarks[filePath]?.length) {
+    storage.bookmarks[k] = storage.bookmarks[filePath];
+    delete storage.bookmarks[filePath];
+    saveStorageData(storage);
+    return storage.bookmarks[k];
+  }
+  return [];
 });
 
 ipcMain.handle('add-bookmark', async (event, filePath, pageOrPayload, label) => {
   const storage = getStorageData();
-  if (!storage.bookmarks[filePath]) {
-    storage.bookmarks[filePath] = [];
+  const k = normalizeBookmarkPath(filePath);
+  if (typeof k !== 'string' || !k) {
+    throw new Error('无效的文件路径');
+  }
+  if (!storage.bookmarks[k]) {
+    storage.bookmarks[k] = [];
   }
 
   let page;
   let cfi;
-  if (typeof pageOrPayload === 'number') {
-    page = pageOrPayload;
-  } else if (pageOrPayload && typeof pageOrPayload === 'object' && typeof pageOrPayload.cfi === 'string') {
+
+  if (pageOrPayload && typeof pageOrPayload === 'object' && typeof pageOrPayload.cfi === 'string') {
     cfi = pageOrPayload.cfi;
+  } else {
+    let n;
+    if (typeof pageOrPayload === 'number' && Number.isFinite(pageOrPayload)) {
+      n = pageOrPayload;
+    } else if (typeof pageOrPayload === 'string' && /^\d+$/.test(String(pageOrPayload).trim())) {
+      n = parseInt(String(pageOrPayload).trim(), 10);
+    } else {
+      n = Number(pageOrPayload);
+    }
+    if (Number.isFinite(n)) {
+      page = Math.max(1, Math.round(n));
+    }
   }
 
   let defaultLabel;
@@ -460,19 +514,21 @@ ipcMain.handle('add-bookmark', async (event, filePath, pageOrPayload, label) => 
   if (typeof page === 'number') bookmark.page = page;
   if (cfi) bookmark.cfi = cfi;
 
-  storage.bookmarks[filePath].push(bookmark);
+  storage.bookmarks[k].push(bookmark);
   saveStorageData(storage);
   return bookmark;
 });
 
 ipcMain.handle('remove-bookmark', async (event, filePath, bookmarkId) => {
   const storage = getStorageData();
-  if (storage.bookmarks[filePath]) {
-    storage.bookmarks[filePath] = storage.bookmarks[filePath].filter(
-      b => b.id !== bookmarkId
-    );
-    saveStorageData(storage);
+  const k = normalizeBookmarkPath(filePath);
+  let key = k;
+  if (!storage.bookmarks[key]?.length && filePath && storage.bookmarks[filePath]?.length) {
+    key = filePath;
   }
+  if (!storage.bookmarks[key]?.length) return true;
+  storage.bookmarks[key] = storage.bookmarks[key].filter((b) => b.id !== bookmarkId);
+  saveStorageData(storage);
   return true;
 });
 

@@ -233,6 +233,25 @@
       </div>
     </div>
 
+    <!-- Electron 下 window.prompt 常不可用或瞬间返回 null，改用内置对话框 -->
+    <div id="bookmarkLabelOverlay" class="settings-overlay bookmark-label-overlay" role="presentation" aria-hidden="true">
+      <div id="bookmarkLabelBackdrop" class="settings-backdrop"></div>
+      <div class="settings-modal bookmark-label-modal" role="dialog" aria-modal="true" aria-labelledby="bookmarkLabelTitle">
+        <div class="settings-modal-header">
+          <h2 id="bookmarkLabelTitle" class="settings-modal-title">添加书签</h2>
+          <button type="button" id="bookmarkLabelCloseBtn" class="toolbar-btn settings-close-btn" aria-label="关闭">&times;</button>
+        </div>
+        <div class="settings-modal-body">
+          <label for="bookmarkLabelInput" class="bookmark-label-field-label">书签名称</label>
+          <input type="text" id="bookmarkLabelInput" class="bookmark-label-input" autocomplete="off" spellcheck="false" />
+          <div class="bookmark-label-actions">
+            <button type="button" id="bookmarkLabelCancelBtn" class="toolbar-btn">取消</button>
+            <button type="button" id="bookmarkLabelOkBtn" class="toolbar-btn">确定</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div class="statusbar">
       <span id="fileName" class="file-name hidden">未打开文件</span>
       <span class="status-spacer"></span>
