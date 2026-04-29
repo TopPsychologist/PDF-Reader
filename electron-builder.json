@@ -3,8 +3,11 @@
   "productName": "PDF Reader",
   "icon": "icons/icon.png",
   "directories": {
-    "output": "dist"
+    "output": "dist",
+    "buildResources": "build"
   },
+  "asar": true,
+  "asarUnpack": ["**/node_modules/pdfjs-dist/**"],
   "mac": {
     "target": [
       {
@@ -13,8 +16,5 @@
       }
     ],
     "category": "public.app-category.productivity"
-  },
-  "directories": {
-    "output": "dist"
   }
 }

@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, Menu } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, Menu, session } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
@@ -95,6 +95,57 @@ function setDockIcon() {
   } catch (e) {
     console.warn('Could not set Dock icon:', e.message);
   }
+}
+
+/**
+ * 打包后用 file:///（含 app.asar）加载本地资源时，部分响应没有正确 Content-Type，
+ * .css 可能无法作为样式表应用，.js/.mjs 作为 ES module 会因 MIME 不合规而失败。
+ */
+function installFileUrlMimeFix() {
+  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+    const { url, responseHeaders } = details;
+    if (!url || !url.startsWith('file:')) {
+      callback({ responseHeaders });
+      return;
+    }
+
+    let pathOnly;
+    try {
+      pathOnly = decodeURI(url.split(/[#?]/)[0]).toLowerCase();
+    } catch (_e) {
+      pathOnly = url.split(/[#?]/)[0].toLowerCase();
+    }
+
+    let mime = null;
+    if (pathOnly.endsWith('.css')) mime = 'text/css; charset=utf-8';
+    else if (pathOnly.endsWith('.mjs') || pathOnly.endsWith('.cjs') || /\.js$/i.test(pathOnly)) {
+      mime = 'text/javascript; charset=utf-8';
+    } else if (pathOnly.endsWith('.html') || pathOnly.endsWith('.htm')) {
+      mime = 'text/html; charset=utf-8';
+    }
+
+    if (!mime) {
+      callback({ responseHeaders });
+      return;
+    }
+
+    const out = {};
+    let replaced = false;
+    if (responseHeaders && typeof responseHeaders === 'object') {
+      for (const k of Object.keys(responseHeaders)) {
+        if (k.toLowerCase() === 'content-type') {
+          out[k] = [mime];
+          replaced = true;
+        } else {
+          out[k] = responseHeaders[k];
+        }
+      }
+    }
+    if (!replaced) {
+      out['Content-Type'] = [mime];
+    }
+    callback({ responseHeaders: out });
+  });
 }
 
 function createWindow() {
@@ -447,6 +498,7 @@ ipcMain.handle('set-theme', async (event, themeId) => {
 });
 
 app.whenReady().then(() => {
+  installFileUrlMimeFix();
   setDockIcon();
   createWindow();
 

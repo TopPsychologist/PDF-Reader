@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; worker-src 'self' blob:; connect-src 'self' data:;">
+  <!-- 不设严格 CSP：Electron 下 file://（尤其 app.asar 内）会将部分资源判为跨源，meta 中的 style-src/script-src 'self' 易拦截 styles.css、renderer 模块，导致无样式、脚本不执行 -->
   <title>PDF Reader</title>
   <link rel="stylesheet" href="styles.css">
 </head>

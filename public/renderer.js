@@ -1,5 +1,7 @@
 const PDFJS_REL = '../node_modules/pdfjs-dist/legacy/build/pdf.mjs';
 const PDF_WORKER_REL = '../node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs';
+/** 打包到 app.asar 后也需能正确解析 cmap 路径（pdf.worker / fetch） */
+const PDF_CMAP_URL = new URL('../node_modules/pdfjs-dist/cmaps/', import.meta.url).href;
 
 let pdfjsLib = null;
 let pdfJsLoadPromise = null;
@@ -160,6 +162,40 @@ const settingsBtn = document.getElementById('settingsBtn');
 const settingsOverlay = document.getElementById('settingsOverlay');
 const closeSettingsBtn = document.getElementById('closeSettingsBtn');
 const settingsBackdrop = document.getElementById('settingsBackdrop');
+
+/**
+ * 若曾在 index.html 中误粘贴 preload 片段或内联 script 被提早截断，
+ * 源码可能以文本节点出现在 body/#app 顶部；按特征摘除，不影响正常排版。
+ */
+function stripAccidentalPreloadSourceTextNodes() {
+  const looksLikePreloadLeak = (s) =>
+    typeof s === 'string' &&
+    s.length > 30 &&
+    /\bipcRenderer\s*\.\s*invoke\s*\(\s*['"]remove-bookmark['"]/.test(s);
+
+  const stripUnder = (parent) => {
+    if (!parent) return;
+    for (let ch = parent.firstChild; ch; ) {
+      const next = ch.nextSibling;
+      if (ch.nodeType === Node.TEXT_NODE && looksLikePreloadLeak(ch.textContent)) {
+        ch.remove();
+      } else if (
+        ch.nodeType === Node.ELEMENT_NODE &&
+        ch.children.length === 0 &&
+        looksLikePreloadLeak(ch.textContent)
+      ) {
+        ch.remove();
+      }
+      ch = next;
+    }
+  };
+
+  stripUnder(document.body);
+  const appRoot = document.getElementById('app');
+  stripUnder(appRoot);
+}
+
+stripAccidentalPreloadSourceTextNodes();
 
 const THEME_IDS = ['midnight', 'graphite', 'ocean', 'amber', 'paper'];
 
@@ -421,7 +457,7 @@ async function loadPDF(data, filePath = null) {
 
     const loadingTask = pdfjsLib.getDocument({
       data,
-      cMapUrl: '../node_modules/pdfjs-dist/cmaps/',
+      cMapUrl: PDF_CMAP_URL,
       cMapPacked: true
     });
 
