@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; worker-src 'self' blob:; connect-src 'self' data:;">
+  <title>PDF Reader</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="app">
+    <div class="toolbar">
+      <button id="openBtn" class="toolbar-btn">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M3 3h7l2 3h9a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/>
+          <path d="M12 11v6"/>
+          <path d="M9 14l3-3 3 3"/>
+        </svg>
+        <span>打开</span>
+      </button>
+
+      <div class="separator"></div>
+
+      <button id="prevBtn" class="toolbar-btn" title="上一页 (←)">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M15 18l-6-6 6-6"/>
+        </svg>
+      </button>
+
+      <div class="page-info">
+        <input type="number" id="pageInput" value="1" min="1">
+        <span>/</span>
+        <span id="totalPages">0</span>
+      </div>
+
+      <button id="nextBtn" class="toolbar-btn" title="下一页 (→)">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M9 18l6-6-6-6"/>
+        </svg>
+      </button>
+
+      <div class="separator"></div>
+
+      <button id="zoomOutBtn" class="toolbar-btn" title="缩小 (Cmd/Ctrl + -)">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="11" cy="11" r="8"/>
+          <path d="M21 21l-4.35-4.35"/>
+          <path d="M8 11h6"/>
+        </svg>
+      </button>
+
+      <span id="zoomLevel" class="zoom-level">100%</span>
+
+      <button id="zoomInBtn" class="toolbar-btn" title="放大 (Cmd/Ctrl + =)">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="11" cy="11" r="8"/>
+          <path d="M21 21l-4.35-4.35"/>
+          <path d="M11 8v6"/>
+          <path d="M8 11h6"/>
+        </svg>
+      </button>
+
+      <button id="fitWidthBtn" class="toolbar-btn" title="适应页面宽度 (Cmd/Ctrl + 0)">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M21 3H3"/>
+          <path d="M21 21H3"/>
+          <path d="M9 9L5 12l4 4"/>
+          <path d="M15 9l4 4-4 4"/>
+        </svg>
+      </button>
+    </div>
+
+    <div class="content" id="content">
+      <div id="dropZone" class="drop-zone">
+        <div class="drop-zone-content">
+          <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+            <polyline points="14 2 14 8 20 8"/>
+            <line x1="12" y1="18" x2="12" y2="12"/>
+            <line x1="9" y1="15" x2="12" y2="12"/>
+            <line x1="15" y1="15" x2="12" y2="12"/>
+          </svg>
+          <p class="drop-zone-text">将 PDF 文件拖放到这里</p>
+          <p class="drop-zone-subtext">或点击上面的"打开"按钮</p>
+        </div>
+      </div>
+
+      <div id="pdfContainer" class="pdf-container"></div>
+    </div>
+
+    <div class="statusbar">
+      <span id="fileName" class="file-name">未打开文件</span>
+      <span class="status-spacer"></span>
+      <span id="statusText" class="status-text">就绪</span>
+    </div>
+  </div>
+
+  <script src="../node_modules/pdfjs-dist/legacy/build/pdf.min.mjs" type="module"></script>
+  <script src="renderer.js" type="module"></script>
+</body>
+</html>

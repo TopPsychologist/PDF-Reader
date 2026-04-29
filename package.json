@@ -1,0 +1,38 @@
+{
+  "name": "pdf-reader-mac",
+  "version": "1.0.0",
+  "description": "A lightweight PDF reader for macOS Intel",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron .",
+    "build": "electron-builder --mac --x64",
+    "build:dir": "electron-builder --mac --x64 --dir"
+  },
+  "keywords": ["pdf", "reader", "electron", "mac"],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^28.3.3",
+    "electron-builder": "^24.13.3"
+  },
+  "dependencies": {
+    "pdfjs-dist": "^4.0.379"
+  },
+  "build": {
+    "appId": "com.pdfreader.mac",
+    "productName": "PDF Reader",
+    "mac": {
+      "target": [
+        {
+          "target": "zip",
+          "arch": ["x64"]
+        }
+      ],
+      "category": "public.app-category.productivity"
+    },
+    "directories": {
+      "output": "dist"
+    }
+  }
+}
