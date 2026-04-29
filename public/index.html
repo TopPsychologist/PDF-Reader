@@ -16,24 +16,32 @@
           <path d="M12 11v6"/>
           <path d="M9 14l3-3 3 3"/>
         </svg>
-        <span>打开</span>
+        <span>打开文件</span>
+      </button>
+
+      <button id="shelfBtn" class="toolbar-btn">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
+          <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
+        </svg>
+        <span>书架</span>
       </button>
 
       <div class="separator"></div>
 
-      <button id="prevBtn" class="toolbar-btn" title="上一页 (←)">
+      <button id="prevBtn" class="toolbar-btn" title="上一页 (←)" disabled>
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M15 18l-6-6 6-6"/>
         </svg>
       </button>
 
       <div class="page-info">
-        <input type="number" id="pageInput" value="1" min="1">
+        <input type="number" id="pageInput" value="1" min="1" disabled>
         <span>/</span>
         <span id="totalPages">0</span>
       </div>
 
-      <button id="nextBtn" class="toolbar-btn" title="下一页 (→)">
+      <button id="nextBtn" class="toolbar-btn" title="下一页 (→)" disabled>
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M9 18l6-6-6-6"/>
         </svg>
@@ -41,7 +49,7 @@
 
       <div class="separator"></div>
 
-      <button id="zoomOutBtn" class="toolbar-btn" title="缩小 (Cmd/Ctrl + -)">
+      <button id="zoomOutBtn" class="toolbar-btn" title="缩小 (Cmd/Ctrl + -)" disabled>
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <circle cx="11" cy="11" r="8"/>
           <path d="M21 21l-4.35-4.35"/>
@@ -51,7 +59,7 @@
 
       <span id="zoomLevel" class="zoom-level">100%</span>
 
-      <button id="zoomInBtn" class="toolbar-btn" title="放大 (Cmd/Ctrl + =)">
+      <button id="zoomInBtn" class="toolbar-btn" title="放大 (Cmd/Ctrl + =)" disabled>
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <circle cx="11" cy="11" r="8"/>
           <path d="M21 21l-4.35-4.35"/>
@@ -60,12 +68,31 @@
         </svg>
       </button>
 
-      <button id="fitWidthBtn" class="toolbar-btn" title="适应页面宽度 (Cmd/Ctrl + 0)">
+      <button id="fitWidthBtn" class="toolbar-btn" title="适应页面宽度 (Cmd/Ctrl + 0)" disabled>
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M21 3H3"/>
           <path d="M21 21H3"/>
           <path d="M9 9L5 12l4 4"/>
           <path d="M15 9l4 4-4 4"/>
+        </svg>
+      </button>
+
+      <div class="separator"></div>
+
+      <button id="bookmarkBtn" class="toolbar-btn" title="添加书签 (Cmd/Ctrl + D)" disabled>
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/>
+        </svg>
+      </button>
+
+      <button id="showBookmarksBtn" class="toolbar-btn" title="显示书签列表" disabled>
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="8" y1="6" x2="21" y2="6"/>
+          <line x1="8" y1="12" x2="21" y2="12"/>
+          <line x1="8" y1="18" x2="21" y2="18"/>
+          <line x1="3" y1="6" x2="3.01" y2="6"/>
+          <line x1="3" y1="12" x2="3.01" y2="12"/>
+          <line x1="3" y1="18" x2="3.01" y2="18"/>
         </svg>
       </button>
     </div>
@@ -81,21 +108,63 @@
             <line x1="15" y1="15" x2="12" y2="12"/>
           </svg>
           <p class="drop-zone-text">将 PDF 文件拖放到这里</p>
-          <p class="drop-zone-subtext">或点击上面的"打开"按钮</p>
+          <p class="drop-zone-subtext">或点击上面的"打开文件"按钮</p>
+          <p class="drop-zone-subtext">点击"书架"按钮选择文件夹作为书架</p>
+        </div>
+      </div>
+
+      <div id="shelfView" class="shelf-view">
+        <div class="shelf-header">
+          <h2 id="shelfTitle">书架</h2>
+          <button id="changeFolderBtn" class="toolbar-btn">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M23 4v6h-6"/>
+              <path d="M1 20v-6h6"/>
+              <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+            </svg>
+            <span>更换文件夹</span>
+          </button>
+        </div>
+        <div id="shelfGrid" class="shelf-grid"></div>
+        <div id="shelfEmpty" class="shelf-empty">
+          <p>文件夹中没有 PDF 文件</p>
         </div>
       </div>
 
       <div id="pdfContainer" class="pdf-container"></div>
+
+      <div id="bookmarkSidebar" class="bookmark-sidebar">
+        <div class="bookmark-sidebar-header">
+          <h3>书签</h3>
+          <button id="closeBookmarkBtn" class="toolbar-btn">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="18" y1="6" x2="6" y2="18"/>
+              <line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+        </div>
+        <div id="bookmarkList" class="bookmark-list"></div>
+      </div>
+
+      <div id="loadingOverlay" class="loading-overlay">
+        <div class="loading-spinner"></div>
+        <span id="loadingText" class="loading-text">正在加载...</span>
+      </div>
     </div>
 
     <div class="statusbar">
       <span id="fileName" class="file-name">未打开文件</span>
       <span class="status-spacer"></span>
+      <span id="bookmarkIndicator" class="bookmark-indicator hidden">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2">
+          <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/>
+        </svg>
+        已添加书签
+      </span>
       <span id="statusText" class="status-text">就绪</span>
     </div>
   </div>
 
-  <script src="../node_modules/pdfjs-dist/legacy/build/pdf.min.mjs" type="module"></script>
-  <script src="renderer.js" type="module"></script>
+  <script type="module" src="renderer.js"></script>
 </body>
 </html>
