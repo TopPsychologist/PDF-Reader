@@ -70,6 +70,18 @@ html, body {
   font-size: 14px;
 }
 
+.toolbar-reading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.toolbar-reading.hidden {
+  display: none !important;
+}
+
 .separator {
   width: 1px;
   height: 24px;
@@ -167,26 +179,37 @@ html, body {
   width: 100%;
   height: 100%;
   display: none;
-  justify-content: center;
-  align-items: flex-start;
   padding: 20px;
+  box-sizing: border-box;
   background-color: #2a2a3e;
   overflow: auto;
 }
 
 .pdf-container.active {
   display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
 }
 
 .pdf-page-wrapper {
-  display: flex;
-  justify-content: center;
+  display: block;
+  flex-shrink: 0;
+  margin-left: auto;
+  margin-right: auto;
+  max-width: 100%;
   background-color: white;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
 }
 
 .pdf-page {
   display: block;
+  vertical-align: top;
+}
+
+.shelf-cover-canvas {
+  display: block;
+  vertical-align: top;
 }
 
 .shelf-view {

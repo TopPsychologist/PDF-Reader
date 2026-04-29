@@ -16,7 +16,7 @@
           <path d="M12 11v6"/>
           <path d="M9 14l3-3 3 3"/>
         </svg>
-        <span>打开文件</span>
+        <span>打开</span>
       </button>
 
       <button id="shelfBtn" class="toolbar-btn">
@@ -35,6 +35,7 @@
         <span>返回书架</span>
       </button>
 
+      <div id="toolbarReading" class="toolbar-reading hidden">
       <div class="separator"></div>
 
       <button id="prevBtn" class="toolbar-btn" title="上一页 (←)" disabled>
@@ -96,33 +97,31 @@
 
       <div class="separator"></div>
 
-      <button id="tocBtn" class="toolbar-btn" title="目录" disabled>
+      <button id="tocBtn" class="toolbar-btn" type="button" disabled title="PDF 大纲目录（侧栏 · 区别于阅读书签列表）">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <line x1="8" y1="6" x2="21" y2="6"/>
-          <line x1="8" y1="12" x2="21" y2="12"/>
-          <line x1="8" y1="18" x2="21" y2="18"/>
-          <line x1="3" y1="6" x2="3.01" y2="6"/>
-          <line x1="3" y1="12" x2="3.01" y2="12"/>
-          <line x1="3" y1="18" x2="3.01" y2="18"/>
+          <path d="M8 7h13"/>
+          <path d="M8 12h13"/>
+          <path d="M8 17h13"/>
+          <circle cx="4" cy="7" r="1" fill="currentColor" stroke="none"/>
+          <circle cx="4" cy="12" r="1" fill="currentColor" stroke="none"/>
+          <circle cx="4" cy="17" r="1" fill="currentColor" stroke="none"/>
         </svg>
       </button>
 
-      <button id="bookmarkBtn" class="toolbar-btn" title="添加书签 (Cmd/Ctrl + D)" disabled>
+      <button id="bookmarkBtn" class="toolbar-btn" type="button" disabled title="在当前页添加阅读书签（⌘ / Ctrl + D）">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/>
         </svg>
       </button>
 
-      <button id="showBookmarksBtn" class="toolbar-btn" title="书签列表" disabled>
+      <button id="showBookmarksBtn" class="toolbar-btn" type="button" disabled title="打开「我的书签」列表侧栏（与 PDF 大纲目录无关）">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <line x1="8" y1="6" x2="21" y2="6"/>
-          <line x1="8" y1="12" x2="21" y2="12"/>
-          <line x1="8" y1="18" x2="21" y2="18"/>
-          <line x1="3" y1="6" x2="3.01" y2="6"/>
-          <line x1="3" y1="12" x2="3.01" y2="12"/>
-          <line x1="3" y1="18" x2="3.01" y2="18"/>
+          <path d="M13 21H9a8 8 0 0 1-6-11.73 6 6 0 1 1 12 2.23 6 6 0 1 1-.36 12z"/>
+          <circle cx="9" cy="8" r="1" fill="currentColor"/>
+          <circle cx="15" cy="8" r="1" fill="currentColor"/>
         </svg>
       </button>
+      </div>
     </div>
 
     <div class="content" id="content">
@@ -136,7 +135,7 @@
             <line x1="15" y1="15" x2="12" y2="12"/>
           </svg>
           <p class="drop-zone-text">将 PDF 文件拖放到这里</p>
-          <p class="drop-zone-subtext">或点击上面的"打开文件"按钮</p>
+          <p class="drop-zone-subtext">或点击上面的「打开」按钮</p>
           <p class="drop-zone-subtext">点击"书架"按钮选择文件夹作为书架</p>
         </div>
       </div>
@@ -163,7 +162,7 @@
 
       <div id="tocSidebar" class="toc-sidebar">
         <div class="toc-sidebar-header">
-          <h3>目录</h3>
+          <h3>PDF 大纲目录</h3>
           <button id="closeTocBtn" class="toolbar-btn">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <line x1="18" y1="6" x2="6" y2="18"/>
@@ -176,7 +175,7 @@
 
       <div id="bookmarkSidebar" class="bookmark-sidebar">
         <div class="bookmark-sidebar-header">
-          <h3>书签</h3>
+          <h3>我的书签</h3>
           <button id="closeBookmarkBtn" class="toolbar-btn">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <line x1="18" y1="6" x2="6" y2="18"/>
@@ -194,7 +193,7 @@
     </div>
 
     <div class="statusbar">
-      <span id="fileName" class="file-name">未打开文件</span>
+      <span id="fileName" class="file-name hidden">未打开文件</span>
       <span class="status-spacer"></span>
       <span id="bookmarkIndicator" class="bookmark-indicator hidden">
         <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2">

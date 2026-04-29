@@ -19,6 +19,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onAddBookmark: (callback) => {
     ipcRenderer.on('add-bookmark', (event) => callback());
   },
+  onToggleTocSidebar: (callback) => {
+    ipcRenderer.on('toggle-toc-sidebar', () => callback());
+  },
+  onToggleBookmarksSidebar: (callback) => {
+    ipcRenderer.on('toggle-bookmarks-sidebar', () => callback());
+  },
   getReadingPosition: (filePath) => ipcRenderer.invoke('get-reading-position', filePath),
   saveReadingPosition: (filePath, page) => ipcRenderer.invoke('save-reading-position', filePath, page),
   getBookmarks: (filePath) => ipcRenderer.invoke('get-bookmarks', filePath),

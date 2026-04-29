@@ -1,9 +1,24 @@
-import * as pdfjsLib from '../node_modules/pdfjs-dist/legacy/build/pdf.mjs';
+const PDFJS_REL = '../node_modules/pdfjs-dist/legacy/build/pdf.mjs';
+const PDF_WORKER_REL = '../node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs';
 
-pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
-  '../node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs',
-  import.meta.url
-).toString();
+let pdfjsLib = null;
+let pdfJsLoadPromise = null;
+
+async function ensurePdfJsLib() {
+  if (pdfjsLib) return pdfjsLib;
+  if (!pdfJsLoadPromise) {
+    pdfJsLoadPromise = (async () => {
+      const mod = await import(PDFJS_REL);
+      pdfjsLib = mod;
+      pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(PDF_WORKER_REL, import.meta.url).href;
+      return pdfjsLib;
+    })().catch((err) => {
+      pdfJsLoadPromise = null;
+      throw err;
+    });
+  }
+  return pdfJsLoadPromise;
+}
 
 let pdfDoc = null;
 let currentPage = 1;
@@ -16,6 +31,10 @@ let currentToc = [];
 let isLoading = false;
 let savePositionTimer = null;
 let currentShelfFiles = [];
+
+function getCssPixelRatio() {
+  return window.devicePixelRatio || 1;
+}
 
 const dropZone = document.getElementById('dropZone');
 const pdfContainer = document.getElementById('pdfContainer');
@@ -50,6 +69,7 @@ const statusText = document.getElementById('statusText');
 const bookmarkIndicator = document.getElementById('bookmarkIndicator');
 const loadingOverlay = document.getElementById('loadingOverlay');
 const loadingText = document.getElementById('loadingText');
+const toolbarReading = document.getElementById('toolbarReading');
 
 function showLoading(text = '正在加载...') {
   loadingText.textContent = text;
@@ -69,6 +89,8 @@ function showPdfView() {
   tocSidebar.classList.remove('active');
   bookmarkSidebar.classList.remove('active');
   backToShelfBtn.classList.remove('hidden');
+  if (toolbarReading) toolbarReading.classList.remove('hidden');
+  fileNameEl.classList.remove('hidden');
   enablePdfControls(true);
 }
 
@@ -79,6 +101,8 @@ function showShelfView() {
   tocSidebar.classList.remove('active');
   bookmarkSidebar.classList.remove('active');
   backToShelfBtn.classList.add('hidden');
+  if (toolbarReading) toolbarReading.classList.add('hidden');
+  fileNameEl.classList.add('hidden');
   enablePdfControls(false);
 }
 
@@ -89,6 +113,8 @@ function showWelcome() {
   tocSidebar.classList.remove('active');
   bookmarkSidebar.classList.remove('active');
   backToShelfBtn.classList.add('hidden');
+  if (toolbarReading) toolbarReading.classList.add('hidden');
+  fileNameEl.classList.add('hidden');
   enablePdfControls(false);
 }
 
@@ -126,6 +152,7 @@ function getToolbarHeight() {
 async function loadPDF(data, filePath = null) {
   try {
     showLoading('正在加载 PDF...');
+    await ensurePdfJsLib();
 
     if (pdfDoc) {
       pdfDoc.destroy();
@@ -157,7 +184,7 @@ async function loadPDF(data, filePath = null) {
 
     try {
       const outline = await pdfDoc.getOutline();
-      currentToc = parseOutline(outline, pdfDoc);
+      currentToc = await parseOutline(outline, pdfDoc);
     } catch (e) {
       console.log('No outline available');
       currentToc = [];
@@ -178,7 +205,7 @@ async function loadPDF(data, filePath = null) {
   }
 }
 
-function parseOutline(outline, pdf) {
+async function parseOutline(outline, pdf) {
   const result = [];
   if (!outline) return result;
 
@@ -204,14 +231,14 @@ function parseOutline(outline, pdf) {
     let page = 1;
     if (item.dest) {
       try {
-        const dest = typeof item.dest === 'string'
-          ? await pdf.getDestination(item.dest)
-          : item.dest;
-        if (dest) {
-          const pageIndex = dest[0];
-          const pageRef = pdf.getPageIndex(pageRef);
-          if (typeof pageRef === 'number') {
-            page = pageRef + 1;
+        const dest =
+          typeof item.dest === 'string'
+            ? await pdf.getDestination(item.dest)
+            : item.dest;
+        if (dest && dest.length) {
+          const pageIdx = await pdf.getPageIndex(dest[0]);
+          if (typeof pageIdx === 'number') {
+            page = pageIdx + 1;
           }
         }
       } catch (e) {}
@@ -247,46 +274,51 @@ async function renderPage(pageNum) {
   if (!pdfDoc) return;
 
   try {
+    await ensurePdfJsLib();
+
     const page = await pdfDoc.getPage(pageNum);
-    let viewport = page.getViewport({ scale: 1 });
+    const viewportBase = page.getViewport({ scale: 1 });
 
     const containerWidth = pdfContainer.clientWidth - 40;
     const containerHeight = pdfContainer.clientHeight - 40;
     const toolbarHeight = getToolbarHeight();
 
-    let targetScale = scale;
+    let baseScaleFactor = scale;
 
     if (fitMode === 'width') {
-      targetScale = containerWidth / viewport.width;
+      baseScaleFactor = containerWidth / viewportBase.width;
     } else if (fitMode === 'height') {
-      targetScale = (containerHeight - toolbarHeight) / viewport.height;
+      baseScaleFactor = (containerHeight - toolbarHeight) / viewportBase.height;
     }
 
-    viewport = page.getViewport({ scale: targetScale * 0.98 });
+    const cssScale = baseScaleFactor * 0.98;
+    const dpr = getCssPixelRatio();
+    const cssViewport = page.getViewport({ scale: cssScale });
+    const renderViewport = page.getViewport({ scale: cssScale * dpr });
 
     pdfContainer.innerHTML = '';
-    pdfContainer.style.overflow = 'hidden';
+    // 适应宽度/高度时可滚动查看画布外的区域（长页纵向、宽页横向）
+    pdfContainer.style.overflow = 'auto';
 
     const wrapper = document.createElement('div');
     wrapper.className = 'pdf-page-wrapper';
-    wrapper.style.display = 'flex';
-    wrapper.style.justifyContent = 'center';
-    wrapper.style.alignItems = 'center';
-    wrapper.style.height = '100%';
 
     const canvas = document.createElement('canvas');
     canvas.className = 'pdf-page';
-    const context = canvas.getContext('2d');
+    const context = canvas.getContext('2d', { alpha: false });
 
-    canvas.width = viewport.width;
-    canvas.height = viewport.height;
+    canvas.width = Math.floor(renderViewport.width);
+    canvas.height = Math.floor(renderViewport.height);
+
+    canvas.style.width = Math.ceil(cssViewport.width) + 'px';
+    canvas.style.height = Math.ceil(cssViewport.height) + 'px';
 
     wrapper.appendChild(canvas);
     pdfContainer.appendChild(wrapper);
 
     await page.render({
       canvasContext: context,
-      viewport: viewport
+      viewport: renderViewport
     }).promise;
   } catch (error) {
     console.error('Error rendering page:', error);
@@ -312,7 +344,7 @@ function goToPage(pageNum) {
   if (pageNum > totalPages) pageNum = totalPages;
 
   currentPage = pageNum;
-  renderPage(currentPage);
+  renderPage(currentPage).catch((err) => console.error(err));
   updateUI();
   updateBookmarkIndicator();
   scheduleSavePosition();
@@ -350,7 +382,7 @@ function zoom(direction) {
     fitMode = 'height';
   }
 
-  renderPage(currentPage);
+  renderPage(currentPage).catch((err) => console.error(err));
   updateUI();
 }
 
@@ -488,6 +520,13 @@ async function renderShelfWithCovers(files) {
 }
 
 async function renderCoversForVisibleItems() {
+  try {
+    await ensurePdfJsLib();
+  } catch (e) {
+    console.warn('PDF engine unavailable for shelf covers:', e);
+    return;
+  }
+
   const items = shelfGrid.querySelectorAll('.shelf-item-cover[data-path]');
   const coverCache = {};
 
@@ -495,22 +534,37 @@ async function renderCoversForVisibleItems() {
     const filePath = coverEl.dataset.path;
     if (coverCache[filePath]) continue;
 
+    // 已渲染过封面则保留，返回书架时不重复解码整本 PDF
+    if (coverEl.querySelector('canvas.shelf-cover-canvas')) {
+      coverCache[filePath] = true;
+      continue;
+    }
+
     try {
       const pdfData = await window.electronAPI.readPdfFile(filePath);
       if (pdfData) {
         const loadingTask = pdfjsLib.getDocument({ data: pdfData.data });
         const pdf = await loadingTask.promise;
         const page = await pdf.getPage(1);
-        const viewport = page.getViewport({ scale: 0.5 });
+        const thumbCssScale = 0.5;
+        const dpr = Math.min(getCssPixelRatio(), 2);
+        const baseVp = page.getViewport({ scale: 1 });
+        const renderVp = page.getViewport({ scale: thumbCssScale * dpr });
+        const cssW = Math.floor(thumbCssScale * baseVp.width);
+        const cssH = Math.floor(thumbCssScale * baseVp.height);
 
         const canvas = document.createElement('canvas');
-        canvas.width = viewport.width;
-        canvas.height = viewport.height;
-        const context = canvas.getContext('2d');
+        canvas.className = 'shelf-cover-canvas';
+        canvas.width = Math.floor(renderVp.width);
+        canvas.height = Math.floor(renderVp.height);
+        canvas.style.width = cssW + 'px';
+        canvas.style.height = cssH + 'px';
+
+        const context = canvas.getContext('2d', { alpha: false });
 
         await page.render({
           canvasContext: context,
-          viewport: viewport
+          viewport: renderVp
         }).promise;
 
         coverEl.innerHTML = '';
@@ -525,6 +579,12 @@ async function renderCoversForVisibleItems() {
 }
 
 async function updateReadingProgress() {
+  try {
+    await ensurePdfJsLib();
+  } catch (e) {
+    return;
+  }
+
   const items = shelfGrid.querySelectorAll('.shelf-item-progress[data-path]');
 
   for (const progressEl of items) {
@@ -595,7 +655,21 @@ function renderShelf(files) {
 function setupEventListeners() {
   if (typeof window.electronAPI === 'undefined') {
     console.error('window.electronAPI is not defined');
+    statusText.textContent = 'preload 未注入：请使用 Electron 启动（不要用浏览器直接打开 index.html）。';
     return;
+  }
+
+  const requiredRefs = [
+    ['openBtn', openBtn],
+    ['shelfBtn', shelfBtn],
+    ['dropZone', dropZone]
+  ];
+  for (const [name, el] of requiredRefs) {
+    if (!el) {
+      console.error(`Missing DOM element: ${name}`);
+      statusText.textContent = '界面元素加载不完整，无法绑定按钮。';
+      return;
+    }
   }
 
   openBtn.addEventListener('click', () => {
@@ -607,9 +681,6 @@ function setupEventListeners() {
   });
 
   backToShelfBtn.addEventListener('click', () => {
-    if (currentShelfFiles.length > 0) {
-      renderShelfWithCovers(currentShelfFiles);
-    }
     showShelfView();
   });
 
@@ -674,9 +745,6 @@ function setupEventListeners() {
       addBookmark();
     } else if ((e.metaKey || e.ctrlKey) && e.key === 'b') {
       e.preventDefault();
-      if (currentShelfFiles.length > 0) {
-        renderShelfWithCovers(currentShelfFiles);
-      }
       showShelfView();
     }
   });
@@ -709,14 +777,31 @@ function setupEventListeners() {
   });
 
   window.electronAPI.onShowShelf(() => {
-    if (currentShelfFiles.length > 0) {
-      renderShelfWithCovers(currentShelfFiles);
-    }
     showShelfView();
   });
 
   window.electronAPI.onAddBookmark(() => {
     addBookmark();
+  });
+
+  window.electronAPI.onToggleTocSidebar(() => {
+    if (!pdfDoc) {
+      statusText.textContent = '请先打开 PDF 后再查看 PDF 大纲目录';
+      return;
+    }
+    renderToc();
+    tocSidebar.classList.toggle('active');
+    bookmarkSidebar.classList.remove('active');
+  });
+
+  window.electronAPI.onToggleBookmarksSidebar(() => {
+    if (!pdfDoc || !currentPdfPath) {
+      statusText.textContent = '请先打开 PDF 后再查看书签列表';
+      return;
+    }
+    renderBookmarks();
+    bookmarkSidebar.classList.toggle('active');
+    tocSidebar.classList.remove('active');
   });
 
   dropZone.addEventListener('click', () => {
@@ -761,10 +846,10 @@ function setupEventListeners() {
 
   window.addEventListener('resize', () => {
     if (pdfDoc) {
-      renderPage(currentPage);
+      renderPage(currentPage).catch((err) => console.error(err));
     }
     if (shelfView.classList.contains('active')) {
-      renderCoversForVisibleItems();
+      renderCoversForVisibleItems().catch((err) => console.error(err));
     }
   });
 }

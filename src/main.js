@@ -49,7 +49,25 @@ function readFolderPdfFiles(folderPath) {
   return pdfFiles;
 }
 
+function getAppIconPath() {
+  const iconPath = path.join(__dirname, '../build/icon.png');
+  return fs.existsSync(iconPath) ? iconPath : undefined;
+}
+
+function setDockIcon() {
+  if (process.platform !== 'darwin' || !app.dock) return;
+  const p = getAppIconPath();
+  if (!p) return;
+  try {
+    app.dock.setIcon(p);
+  } catch (e) {
+    console.warn('Could not set Dock icon:', e.message);
+  }
+}
+
 function createWindow() {
+  const iconPath = getAppIconPath();
+
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 900,
@@ -61,7 +79,8 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js')
     },
     backgroundColor: '#1a1a2e',
-    show: false
+    show: false,
+    icon: iconPath
   });
 
   mainWindow.loadFile(path.join(__dirname, '../public/index.html'));
@@ -87,13 +106,19 @@ function createWindow() {
   createMenu();
 }
 
+function safeSend(channel, ...args) {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send(channel, ...args);
+  }
+}
+
 function createMenu() {
   const template = [
     {
       label: '文件',
       submenu: [
         {
-          label: '打开文件',
+          label: '打开…',
           accelerator: 'CmdOrCtrl+O',
           click: () => openFile()
         },
@@ -106,11 +131,15 @@ function createMenu() {
         {
           label: '返回书架',
           accelerator: 'CmdOrCtrl+B',
-          click: () => mainWindow.webContents.send('show-shelf')
+          click: () => {
+            if (mainWindow && !mainWindow.isDestroyed()) {
+              mainWindow.webContents.send('show-shelf');
+            }
+          }
         },
         { type: 'separator' },
         {
-          label: '退出',
+          label: '退出应用',
           accelerator: 'CmdOrCtrl+Q',
           click: () => app.quit()
         }
@@ -122,28 +151,36 @@ function createMenu() {
         {
           label: '放大',
           accelerator: 'CmdOrCtrl+=',
-          click: () => mainWindow.webContents.send('zoom', 'in')
+          click: () => safeSend('zoom', 'in')
         },
         {
           label: '缩小',
           accelerator: 'CmdOrCtrl+-',
-          click: () => mainWindow.webContents.send('zoom', 'out')
+          click: () => safeSend('zoom', 'out')
         },
         {
           label: '适应页面宽度',
           accelerator: 'CmdOrCtrl+0',
-          click: () => mainWindow.webContents.send('zoom', 'fit-width')
+          click: () => safeSend('zoom', 'fit-width')
         },
         {
           label: '适应窗口高度',
           accelerator: 'CmdOrCtrl+1',
-          click: () => mainWindow.webContents.send('zoom', 'fit-height')
+          click: () => safeSend('zoom', 'fit-height')
         },
         { type: 'separator' },
         {
-          label: '重新加载',
+          label: '显示 PDF 目录侧栏（文档大纲结构）…',
+          accelerator: 'CmdOrCtrl+Shift+T',
+          click: () => safeSend('toggle-toc-sidebar')
+        },
+        { type: 'separator' },
+        {
+          label: '重新加载界面',
           accelerator: 'CmdOrCtrl+R',
-          click: () => mainWindow.webContents.reload()
+          click: () => {
+            if (mainWindow && !mainWindow.isDestroyed()) mainWindow.reload();
+          }
         }
       ]
     },
@@ -151,9 +188,15 @@ function createMenu() {
       label: '书签',
       submenu: [
         {
-          label: '添加书签',
+          label: '在当前页添加阅读书签',
           accelerator: 'CmdOrCtrl+D',
-          click: () => mainWindow.webContents.send('add-bookmark')
+          click: () => safeSend('add-bookmark')
+        },
+        { type: 'separator' },
+        {
+          label: '打开「书签列表」侧栏',
+          accelerator: 'CmdOrCtrl+Shift+B',
+          click: () => safeSend('toggle-bookmarks-sidebar')
         }
       ]
     },
@@ -285,6 +328,7 @@ ipcMain.handle('get-shelf-folder', async () => {
 });
 
 app.whenReady().then(() => {
+  setDockIcon();
   createWindow();
 
   app.on('activate', () => {
