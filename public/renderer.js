@@ -9,10 +9,13 @@ let pdfDoc = null;
 let currentPage = 1;
 let totalPages = 0;
 let scale = 1.0;
+let fitMode = 'width';
 let currentPdfPath = null;
 let currentBookmarks = [];
+let currentToc = [];
 let isLoading = false;
 let savePositionTimer = null;
+let currentShelfFiles = [];
 
 const dropZone = document.getElementById('dropZone');
 const pdfContainer = document.getElementById('pdfContainer');
@@ -22,6 +25,7 @@ const shelfTitle = document.getElementById('shelfTitle');
 const shelfEmpty = document.getElementById('shelfEmpty');
 const openBtn = document.getElementById('openBtn');
 const shelfBtn = document.getElementById('shelfBtn');
+const backToShelfBtn = document.getElementById('backToShelfBtn');
 const changeFolderBtn = document.getElementById('changeFolderBtn');
 const prevBtn = document.getElementById('prevBtn');
 const nextBtn = document.getElementById('nextBtn');
@@ -31,8 +35,13 @@ const zoomInBtn = document.getElementById('zoomInBtn');
 const zoomOutBtn = document.getElementById('zoomOutBtn');
 const zoomLevelEl = document.getElementById('zoomLevel');
 const fitWidthBtn = document.getElementById('fitWidthBtn');
+const fitHeightBtn = document.getElementById('fitHeightBtn');
+const tocBtn = document.getElementById('tocBtn');
 const bookmarkBtn = document.getElementById('bookmarkBtn');
 const showBookmarksBtn = document.getElementById('showBookmarksBtn');
+const tocSidebar = document.getElementById('tocSidebar');
+const tocList = document.getElementById('tocList');
+const closeTocBtn = document.getElementById('closeTocBtn');
 const bookmarkSidebar = document.getElementById('bookmarkSidebar');
 const bookmarkList = document.getElementById('bookmarkList');
 const closeBookmarkBtn = document.getElementById('closeBookmarkBtn');
@@ -57,7 +66,9 @@ function showPdfView() {
   dropZone.classList.add('hidden');
   shelfView.classList.remove('active');
   pdfContainer.classList.add('active');
+  tocSidebar.classList.remove('active');
   bookmarkSidebar.classList.remove('active');
+  backToShelfBtn.classList.remove('hidden');
   enablePdfControls(true);
 }
 
@@ -65,7 +76,9 @@ function showShelfView() {
   pdfContainer.classList.remove('active');
   dropZone.classList.add('hidden');
   shelfView.classList.add('active');
+  tocSidebar.classList.remove('active');
   bookmarkSidebar.classList.remove('active');
+  backToShelfBtn.classList.add('hidden');
   enablePdfControls(false);
 }
 
@@ -73,7 +86,9 @@ function showWelcome() {
   dropZone.classList.remove('hidden');
   shelfView.classList.remove('active');
   pdfContainer.classList.remove('active');
+  tocSidebar.classList.remove('active');
   bookmarkSidebar.classList.remove('active');
+  backToShelfBtn.classList.add('hidden');
   enablePdfControls(false);
 }
 
@@ -84,6 +99,8 @@ function enablePdfControls(enable) {
   zoomInBtn.disabled = !enable;
   zoomOutBtn.disabled = !enable;
   fitWidthBtn.disabled = !enable;
+  fitHeightBtn.disabled = !enable;
+  tocBtn.disabled = !enable;
   bookmarkBtn.disabled = !enable;
   showBookmarksBtn.disabled = !enable;
 }
@@ -98,6 +115,12 @@ function updateBookmarkIndicator() {
   } else {
     bookmarkIndicator.classList.add('hidden');
   }
+}
+
+function getToolbarHeight() {
+  const toolbar = document.querySelector('.toolbar');
+  const statusbar = document.querySelector('.statusbar');
+  return toolbar.offsetHeight + statusbar.offsetHeight;
 }
 
 async function loadPDF(data, filePath = null) {
@@ -130,11 +153,21 @@ async function loadPDF(data, filePath = null) {
     }
 
     currentPage = startPage;
-    showPdfView();
+    currentToc = [];
 
+    try {
+      const outline = await pdfDoc.getOutline();
+      currentToc = parseOutline(outline, pdfDoc);
+    } catch (e) {
+      console.log('No outline available');
+      currentToc = [];
+    }
+
+    showPdfView();
     await renderPage(currentPage);
     updateUI();
     updateBookmarkIndicator();
+    updateTocButton();
 
     hideLoading();
     statusText.textContent = '加载完成';
@@ -145,23 +178,101 @@ async function loadPDF(data, filePath = null) {
   }
 }
 
+function parseOutline(outline, pdf) {
+  const result = [];
+  if (!outline) return result;
+
+  function processItem(item, destPage) {
+    if (!item) return;
+
+    if (item.title) {
+      result.push({
+        title: item.title,
+        page: destPage,
+        items: []
+      });
+    }
+
+    if (item.items) {
+      for (const subItem of item.items) {
+        processItem(subItem, destPage);
+      }
+    }
+  }
+
+  for (const item of outline) {
+    let page = 1;
+    if (item.dest) {
+      try {
+        const dest = typeof item.dest === 'string'
+          ? await pdf.getDestination(item.dest)
+          : item.dest;
+        if (dest) {
+          const pageIndex = dest[0];
+          const pageRef = pdf.getPageIndex(pageRef);
+          if (typeof pageRef === 'number') {
+            page = pageRef + 1;
+          }
+        }
+      } catch (e) {}
+    }
+    processItem(item, page);
+  }
+
+  return result;
+}
+
+async function loadTocForPage(pageNum) {
+  if (!pdfDoc) return [];
+
+  try {
+    const page = await pdfDoc.getPage(pageNum);
+    const annotations = await page.getAnnotations();
+    const dests = annotations.filter(a => a.subtype === 'Link' && a.dest);
+
+    if (dests && dests.length > 0) {
+      return dests.map(d => ({
+        title: d.title || `Page ${d.pageNumber}`,
+        page: d.pageNumber
+      }));
+    }
+  } catch (e) {
+    console.log('Error loading TOC:', e);
+  }
+
+  return [];
+}
+
 async function renderPage(pageNum) {
   if (!pdfDoc) return;
 
   try {
     const page = await pdfDoc.getPage(pageNum);
-    let viewport = page.getViewport({ scale });
+    let viewport = page.getViewport({ scale: 1 });
 
     const containerWidth = pdfContainer.clientWidth - 40;
-    if (scale === 1.0 || viewport.width > containerWidth) {
-      const fitScale = containerWidth / page.getViewport({ scale: 1 }).width;
-      viewport = page.getViewport({ scale: fitScale * 0.98 });
+    const containerHeight = pdfContainer.clientHeight - 40;
+    const toolbarHeight = getToolbarHeight();
+
+    let targetScale = scale;
+
+    if (fitMode === 'width') {
+      targetScale = containerWidth / viewport.width;
+    } else if (fitMode === 'height') {
+      targetScale = (containerHeight - toolbarHeight) / viewport.height;
     }
 
+    viewport = page.getViewport({ scale: targetScale * 0.98 });
+
     pdfContainer.innerHTML = '';
+    pdfContainer.style.overflow = 'hidden';
 
     const wrapper = document.createElement('div');
     wrapper.className = 'pdf-page-wrapper';
+    wrapper.style.display = 'flex';
+    wrapper.style.justifyContent = 'center';
+    wrapper.style.alignItems = 'center';
+    wrapper.style.height = '100%';
 
     const canvas = document.createElement('canvas');
     canvas.className = 'pdf-page';
@@ -217,7 +328,11 @@ function updateUI() {
   prevBtn.disabled = currentPage <= 1;
   nextBtn.disabled = currentPage >= totalPages;
   pageInput.value = currentPage;
-  zoomLevelEl.textContent = Math.round(scale * 100) + '%';
+  zoomLevelEl.textContent = Math.round((fitMode === 'width' || fitMode === 'height' ? 100 : scale * 100)) + '%';
+}
+
+function updateTocButton() {
+  tocBtn.disabled = !pdfDoc;
 }
 
 function zoom(direction) {
@@ -225,14 +340,58 @@ function zoom(direction) {
 
   if (direction === 'in') {
     scale = Math.min(scale + 0.25, 5.0);
+    fitMode = 'custom';
   } else if (direction === 'out') {
     scale = Math.max(scale - 0.25, 0.25);
+    fitMode = 'custom';
   } else if (direction === 'fit-width') {
-    scale = 1.0;
+    fitMode = 'width';
+  } else if (direction === 'fit-height') {
+    fitMode = 'height';
   }
 
   renderPage(currentPage);
   updateUI();
+}
+
+function renderToc() {
+  tocList.innerHTML = '<div class="toc-loading">正在加载目录...</div>';
+
+  setTimeout(async () => {
+    if (currentToc.length === 0) {
+      const pageToc = await loadTocForPage(currentPage);
+      if (pageToc.length > 0) {
+        renderTocItems(pageToc);
+      } else {
+        tocList.innerHTML = '<div class="toc-empty">该 PDF 没有目录<br>尝试点击页面跳转</div>';
+      }
+    } else {
+      renderTocItems(currentToc);
+    }
+  }, 100);
+}
+
+function renderTocItems(items) {
+  tocList.innerHTML = '';
+
+  if (items.length === 0) {
+    tocList.innerHTML = '<div class="toc-empty">该 PDF 没有目录</div>';
+    return;
+  }
+
+  items.forEach((item) => {
+    const div = document.createElement('div');
+    div.className = 'toc-item';
+    div.innerHTML = `
+      <span class="toc-item-title">${item.title}</span>
+      <span class="toc-item-page">${item.page}</span>
+    `;
+    div.addEventListener('click', () => {
+      goToPage(item.page);
+      tocSidebar.classList.remove('active');
+    });
+    tocList.appendChild(div);
+  });
 }
 
 function renderBookmarks() {
@@ -282,6 +441,115 @@ async function addBookmark() {
   statusText.textContent = `已添加书签: ${label}`;
 }
 
+async function renderShelfWithCovers(files) {
+  shelfGrid.innerHTML = '';
+
+  if (files.length === 0) {
+    shelfEmpty.classList.add('active');
+    return;
+  }
+
+  shelfEmpty.classList.remove('active');
+  currentShelfFiles = files;
+
+  for (const file of files) {
+    const item = document.createElement('div');
+    item.className = 'shelf-item';
+    item.innerHTML = `
+      <div class="shelf-item-cover" data-path="${file.path}">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+          <polyline points="14 2 14 8 20 8"/>
+          <line x1="16" y1="13" x2="8" y2="13"/>
+          <line x1="16" y1="17" x2="8" y2="17"/>
+        </svg>
+      </div>
+      <span class="shelf-item-title">${file.name}</span>
+      <span class="shelf-item-progress" data-path="${file.path}"></span>
+    `;
+
+    item.addEventListener('click', async () => {
+      showLoading('正在加载...');
+      const pdfData = await window.electronAPI.readPdfFile(file.path);
+      if (pdfData) {
+        fileNameEl.textContent = file.name;
+        loadPDF(pdfData.data, file.path);
+      } else {
+        hideLoading();
+        statusText.textContent = '加载失败';
+      }
+    });
+
+    shelfGrid.appendChild(item);
+  }
+
+  renderCoversForVisibleItems();
+  updateReadingProgress();
+}
+
+async function renderCoversForVisibleItems() {
+  const items = shelfGrid.querySelectorAll('.shelf-item-cover[data-path]');
+  const coverCache = {};
+
+  for (const coverEl of items) {
+    const filePath = coverEl.dataset.path;
+    if (coverCache[filePath]) continue;
+
+    try {
+      const pdfData = await window.electronAPI.readPdfFile(filePath);
+      if (pdfData) {
+        const loadingTask = pdfjsLib.getDocument({ data: pdfData.data });
+        const pdf = await loadingTask.promise;
+        const page = await pdf.getPage(1);
+        const viewport = page.getViewport({ scale: 0.5 });
+
+        const canvas = document.createElement('canvas');
+        canvas.width = viewport.width;
+        canvas.height = viewport.height;
+        const context = canvas.getContext('2d');
+
+        await page.render({
+          canvasContext: context,
+          viewport: viewport
+        }).promise;
+
+        coverEl.innerHTML = '';
+        coverEl.appendChild(canvas);
+        coverCache[filePath] = true;
+        pdf.destroy();
+      }
+    } catch (e) {
+      console.log('Error rendering cover for', filePath, e);
+    }
+  }
+}
+
+async function updateReadingProgress() {
+  const items = shelfGrid.querySelectorAll('.shelf-item-progress[data-path]');
+
+  for (const progressEl of items) {
+    const filePath = progressEl.dataset.path;
+    try {
+      const position = await window.electronAPI.getReadingPosition(filePath);
+      if (position) {
+        const pdfData = await window.electronAPI.readPdfFile(filePath);
+        if (pdfData) {
+          const loadingTask = pdfjsLib.getDocument({ data: pdfData.data });
+          const pdf = await loadingTask.promise;
+          const total = pdf.numPages;
+          const percent = Math.round((position / total) * 100);
+          progressEl.textContent = `已读 ${percent}%`;
+          pdf.destroy();
+        }
+      } else {
+        progressEl.textContent = '';
+      }
+    } catch (e) {
+      progressEl.textContent = '';
+    }
+  }
+}
+
 function renderShelf(files) {
   shelfGrid.innerHTML = '';
 
@@ -291,6 +559,7 @@ function renderShelf(files) {
   }
 
   shelfEmpty.classList.remove('active');
+  currentShelfFiles = files;
 
   files.forEach((file) => {
     const item = document.createElement('div');
@@ -302,7 +571,6 @@ function renderShelf(files) {
           <polyline points="14 2 14 8 20 8"/>
           <line x1="16" y1="13" x2="8" y2="13"/>
           <line x1="16" y1="17" x2="8" y2="17"/>
-          <polyline points="10 9 9 9 8 9"/>
         </svg>
       </div>
       <span class="shelf-item-title">${file.name}</span>
@@ -332,6 +600,13 @@ shelfBtn.addEventListener('click', () => {
   window.electronAPI.openFolderDialog();
 });
 
+backToShelfBtn.addEventListener('click', () => {
+  if (currentShelfFiles.length > 0) {
+    renderShelfWithCovers(currentShelfFiles);
+  }
+  showShelfView();
+});
+
 changeFolderBtn.addEventListener('click', () => {
   window.electronAPI.openFolderDialog();
 });
@@ -354,6 +629,13 @@ pageInput.addEventListener('change', (e) => {
 zoomInBtn.addEventListener('click', () => zoom('in'));
 zoomOutBtn.addEventListener('click', () => zoom('out'));
 fitWidthBtn.addEventListener('click', () => zoom('fit-width'));
+fitHeightBtn.addEventListener('click', () => zoom('fit-height'));
+
+tocBtn.addEventListener('click', () => {
+  renderToc();
+  tocSidebar.classList.toggle('active');
+  bookmarkSidebar.classList.remove('active');
+});
 
 bookmarkBtn.addEventListener('click', () => {
   addBookmark();
@@ -362,6 +644,11 @@ bookmarkBtn.addEventListener('click', () => {
 showBookmarksBtn.addEventListener('click', () => {
   renderBookmarks();
   bookmarkSidebar.classList.toggle('active');
+  tocSidebar.classList.remove('active');
+});
+
+closeTocBtn.addEventListener('click', () => {
+  tocSidebar.classList.remove('active');
 });
 
 closeBookmarkBtn.addEventListener('click', () => {
@@ -379,6 +666,12 @@ document.addEventListener('keydown', (e) => {
   } else if ((e.metaKey || e.ctrlKey) && e.key === 'd') {
     e.preventDefault();
     addBookmark();
+  } else if ((e.metaKey || e.ctrlKey) && e.key === 'b') {
+    e.preventDefault();
+    if (currentShelfFiles.length > 0) {
+      renderShelfWithCovers(currentShelfFiles);
+    }
+    showShelfView();
   }
 });
 
@@ -399,7 +692,7 @@ window.electronAPI.onFileOpened(async (data) => {
 window.electronAPI.onFolderOpened((data) => {
   if (data) {
     shelfTitle.textContent = data.name;
-    renderShelf(data.files);
+    renderShelfWithCovers(data.files);
     showShelfView();
     statusText.textContent = `书架: ${data.files.length} 个 PDF 文件`;
   }
@@ -410,11 +703,10 @@ window.electronAPI.onZoom((direction) => {
 });
 
 window.electronAPI.onShowShelf(() => {
-  if (currentPdfPath) {
-    window.electronAPI.openFolderDialog();
-  } else {
-    showWelcome();
+  if (currentShelfFiles.length > 0) {
+    renderShelfWithCovers(currentShelfFiles);
   }
+  showShelfView();
 });
 
 window.electronAPI.onAddBookmark(() => {
@@ -464,5 +756,8 @@ dropZone.addEventListener('drop', async (e) => {
 window.addEventListener('resize', () => {
   if (pdfDoc) {
     renderPage(currentPage);
+  }
+  if (shelfView.classList.contains('active')) {
+    renderCoversForVisibleItems();
   }
 });

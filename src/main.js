@@ -16,7 +16,7 @@ function getStorageData() {
   } catch (error) {
     console.error('Error reading storage:', error);
   }
-  return { readingPositions: {}, bookmarks: {} };
+  return { readingPositions: {}, bookmarks: {}, shelfFolder: null };
 }
 
 function saveStorageData(data) {
@@ -25,6 +25,28 @@ function saveStorageData(data) {
   } catch (error) {
     console.error('Error saving storage:', error);
   }
+}
+
+function readFolderPdfFiles(folderPath) {
+  const pdfFiles = [];
+  try {
+    const files = fs.readdirSync(folderPath);
+    for (const file of files) {
+      if (file.toLowerCase().endsWith('.pdf')) {
+        const filePath = path.join(folderPath, file);
+        const stats = fs.statSync(filePath);
+        pdfFiles.push({
+          name: file,
+          path: filePath,
+          size: stats.size
+        });
+      }
+    }
+    pdfFiles.sort((a, b) => a.name.localeCompare(b.name));
+  } catch (error) {
+    console.error('Error reading folder:', error);
+  }
+  return pdfFiles;
 }
 
 function createWindow() {
@@ -46,6 +68,16 @@ function createWindow() {
 
   mainWindow.once('ready-to-show', () => {
     mainWindow.show();
+
+    const storage = getStorageData();
+    if (storage.shelfFolder && fs.existsSync(storage.shelfFolder)) {
+      const pdfFiles = readFolderPdfFiles(storage.shelfFolder);
+      mainWindow.webContents.send('folder-opened', {
+        path: storage.shelfFolder,
+        name: path.basename(storage.shelfFolder),
+        files: pdfFiles
+      });
+    }
   });
 
   mainWindow.on('closed', () => {
@@ -102,6 +134,11 @@ function createMenu() {
           accelerator: 'CmdOrCtrl+0',
           click: () => mainWindow.webContents.send('zoom', 'fit-width')
         },
+        {
+          label: '适应窗口高度',
+          accelerator: 'CmdOrCtrl+1',
+          click: () => mainWindow.webContents.send('zoom', 'fit-height')
+        },
         { type: 'separator' },
         {
           label: '重新加载',
@@ -157,25 +194,11 @@ async function openFolder() {
 
   if (!result.canceled && result.filePaths.length > 0) {
     const folderPath = result.filePaths[0];
-    const pdfFiles = [];
+    const pdfFiles = readFolderPdfFiles(folderPath);
 
-    try {
-      const files = fs.readdirSync(folderPath);
-      for (const file of files) {
-        if (file.toLowerCase().endsWith('.pdf')) {
-          const filePath = path.join(folderPath, file);
-          const stats = fs.statSync(filePath);
-          pdfFiles.push({
-            name: file,
-            path: filePath,
-            size: stats.size
-          });
-        }
-      }
-      pdfFiles.sort((a, b) => a.name.localeCompare(b.name));
-    } catch (error) {
-      console.error('Error reading folder:', error);
-    }
+    const storage = getStorageData();
+    storage.shelfFolder = folderPath;
+    saveStorageData(storage);
 
     mainWindow.webContents.send('folder-opened', {
       path: folderPath,
@@ -254,6 +277,11 @@ ipcMain.handle('remove-bookmark', async (event, filePath, bookmarkId) => {
 ipcMain.handle('get-all-bookmarks', async () => {
   const storage = getStorageData();
   return storage.bookmarks;
+});
+
+ipcMain.handle('get-shelf-folder', async () => {
+  const storage = getStorageData();
+  return storage.shelfFolder;
 });
 
 app.whenReady().then(() => {
