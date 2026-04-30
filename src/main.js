@@ -26,13 +26,19 @@ const THEME_MENU_ITEMS = [
   ['paper', '日间纸本']
 ];
 
+/** PDF 阅读：单页 / 双页（并排） */
+const PDF_SPREAD_MODES = ['single', 'double'];
+
 function getStorageData() {
   const defaults = {
     readingPositions: {},
     bookmarks: {},
     shelfFolder: null,
     shelfFolderHistory: [],
-    theme: 'midnight'
+    /** 用户从历史下拉移除的路径（规范化），避免 get 时再自动塞回列表 */
+    shelfHistoryExcluded: [],
+    theme: 'midnight',
+    pdfSpreadMode: 'single'
   };
   try {
     if (fs.existsSync(storagePath)) {
@@ -45,6 +51,9 @@ function getStorageData() {
         bookmarks: data.bookmarks || {},
         shelfFolderHistory: Array.isArray(data.shelfFolderHistory)
           ? data.shelfFolderHistory
+          : [],
+        shelfHistoryExcluded: Array.isArray(data.shelfHistoryExcluded)
+          ? data.shelfHistoryExcluded
           : []
       };
     }
@@ -76,6 +85,21 @@ function normalizeBookmarkPath(filePath) {
 const SHELF_EXTENSIONS = ['.pdf', '.epub'];
 
 const MAX_SHELF_HISTORY = 30;
+const MAX_SHELF_HISTORY_EXCLUDED = 64;
+
+/** 用户再次选择某书架路径时，允许重新出现在历史中 */
+function clearShelfHistoryExclusionForNormalizedPath(storage, normalizedPath) {
+  if (!normalizedPath || !storage) return;
+  storage.shelfHistoryExcluded = (
+    Array.isArray(storage.shelfHistoryExcluded) ? storage.shelfHistoryExcluded : []
+  ).filter((x) => {
+    try {
+      return path.normalize(x) !== normalizedPath;
+    } catch {
+      return true;
+    }
+  });
+}
 
 /** 将路径记入书架历史（当前路径置顶，去重） */
 function pushShelfFolderHistory(storage, folderPath) {
@@ -86,6 +110,7 @@ function pushShelfFolderHistory(storage, folderPath) {
   } catch {
     return;
   }
+  clearShelfHistoryExclusionForNormalizedPath(storage, p);
   const prev = Array.isArray(storage.shelfFolderHistory) ? storage.shelfFolderHistory : [];
   storage.shelfFolderHistory = [p, ...prev.filter((x) => x !== p)].slice(0, MAX_SHELF_HISTORY);
 }
@@ -430,26 +455,97 @@ ipcMain.handle('open-folder-dialog', async () => {
 
 ipcMain.handle('get-shelf-folder-history', async () => {
   const storage = getStorageData();
+  const excluded = new Set(
+    (Array.isArray(storage.shelfHistoryExcluded) ? storage.shelfHistoryExcluded : [])
+      .map((x) => {
+        try {
+          return path.normalize(x);
+        } catch {
+          return null;
+        }
+      })
+      .filter(Boolean)
+  );
+
   let hist = Array.isArray(storage.shelfFolderHistory)
-    ? [...storage.shelfFolderHistory]
+    ? storage.shelfFolderHistory
+        .map((p) => {
+          try {
+            return path.normalize(p);
+          } catch {
+            return null;
+          }
+        })
+        .filter((p) => p && !excluded.has(p))
     : [];
+
+  hist = [...new Set(hist)];
+
   const cur = storage.shelfFolder;
   if (cur) {
     try {
       const n = path.normalize(cur);
-      if (!hist.includes(n)) {
+      if (!excluded.has(n) && !hist.includes(n)) {
         hist.unshift(n);
         storage.shelfFolderHistory = hist.slice(0, MAX_SHELF_HISTORY);
         saveStorageData(storage);
-        hist = storage.shelfFolderHistory;
+        hist = storage.shelfFolderHistory
+          .map((p) => {
+            try {
+              return path.normalize(p);
+            } catch {
+              return null;
+            }
+          })
+          .filter((p) => p && !excluded.has(p));
+        hist = [...new Set(hist)];
       }
     } catch (_) {}
   }
+
   return hist.map((p) => ({
     path: p,
     basename: path.basename(p),
     exists: fs.existsSync(p)
   }));
+});
+
+ipcMain.handle('remove-shelf-folder-from-history', async (event, folderPath) => {
+  if (typeof folderPath !== 'string' || !folderPath.trim()) {
+    return { ok: false, message: '无效路径' };
+  }
+  let n;
+  try {
+    n = path.normalize(folderPath.trim());
+  } catch {
+    return { ok: false, message: '无效路径' };
+  }
+
+  const storage = getStorageData();
+  storage.shelfFolderHistory = (Array.isArray(storage.shelfFolderHistory)
+    ? storage.shelfFolderHistory
+    : []
+  ).filter((x) => {
+    try {
+      return path.normalize(x) !== n;
+    } catch {
+      return true;
+    }
+  });
+
+  const ex = Array.isArray(storage.shelfHistoryExcluded) ? [...storage.shelfHistoryExcluded] : [];
+  const has = ex.some((x) => {
+    try {
+      return path.normalize(x) === n;
+    } catch {
+      return false;
+    }
+  });
+  if (!has) ex.push(n);
+  storage.shelfHistoryExcluded = ex.slice(-MAX_SHELF_HISTORY_EXCLUDED);
+
+  saveStorageData(storage);
+  return { ok: true };
 });
 
 ipcMain.handle('switch-shelf-folder', async (event, folderPath) => {
@@ -633,6 +729,20 @@ ipcMain.handle('get-theme', async () => {
 
 ipcMain.handle('set-theme', async (event, themeId) => {
   setAppTheme(themeId);
+  return true;
+});
+
+ipcMain.handle('get-pdf-spread-mode', async () => {
+  const storage = getStorageData();
+  const id = storage.pdfSpreadMode || 'single';
+  return PDF_SPREAD_MODES.includes(id) ? id : 'single';
+});
+
+ipcMain.handle('set-pdf-spread-mode', async (event, mode) => {
+  if (!PDF_SPREAD_MODES.includes(mode)) return false;
+  const storage = getStorageData();
+  storage.pdfSpreadMode = mode;
+  saveStorageData(storage);
   return true;
 });
 

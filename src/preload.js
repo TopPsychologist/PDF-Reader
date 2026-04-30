@@ -47,8 +47,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getShelfFolderHistory: () => ipcRenderer.invoke('get-shelf-folder-history'),
   /** 切换到已有路径作为当前书架 */
   switchShelfFolder: (folderPath) => ipcRenderer.invoke('switch-shelf-folder', folderPath),
+  /** 从历史记录下移除指定路径（不删磁盘文件夹） */
+  removeShelfFolderFromHistory: (folderPath) =>
+    ipcRenderer.invoke('remove-shelf-folder-from-history', folderPath),
   getTheme: () => ipcRenderer.invoke('get-theme'),
   setTheme: (themeId) => ipcRenderer.invoke('set-theme', themeId),
+  getPdfSpreadMode: () => ipcRenderer.invoke('get-pdf-spread-mode'),
+  setPdfSpreadMode: (mode) => ipcRenderer.invoke('set-pdf-spread-mode', mode),
   /** 阅读书籍时为 true，用于隐藏工具栏「打开 / 书架」并同步应用菜单 */
   setReadingMode: (reading) => ipcRenderer.invoke('set-reading-mode', reading),
   onThemeChanged: (callback) => {

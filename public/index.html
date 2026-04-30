@@ -20,7 +20,7 @@
       </button>
 
       <div id="toolbarShelfWrap" class="toolbar-shelf-wrap">
-        <button id="shelfBtn" class="toolbar-btn" type="button" aria-haspopup="listbox" aria-expanded="false" title="历史书架路径">
+        <button id="shelfBtn" class="toolbar-btn" type="button" aria-haspopup="listbox" aria-expanded="false" title="历史书架路径（点击切换；可从列表移除记录）">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
             <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
@@ -28,7 +28,7 @@
           <span>书架</span>
         </button>
         <div id="shelfHistoryDropdown" class="shelf-history-dropdown" hidden role="presentation">
-          <ul id="shelfHistoryDropdownList" class="shelf-history-dropdown-list" role="listbox" aria-label="历史书架路径"></ul>
+          <ul id="shelfHistoryDropdownList" class="shelf-history-dropdown-list" role="listbox" aria-label="历史书架路径（主区域切换，右侧移除记录）"></ul>
         </div>
       </div>
 
@@ -53,6 +53,7 @@
         <input type="number" id="pageInput" value="1" min="1" disabled>
         <span>/</span>
         <span id="totalPages">0</span>
+        <span id="pageVisibleHint" class="page-visible-hint hidden" role="status"></span>
       </div>
 
       <button id="nextBtn" class="toolbar-btn" title="下一页 (→)" disabled>
@@ -208,23 +209,36 @@
           <button type="button" id="closeSettingsBtn" class="toolbar-btn settings-close-btn" aria-label="关闭">&times;</button>
         </div>
         <div class="settings-modal-body">
-          <h3 class="settings-section-title">主题</h3>
-          <div class="theme-list" id="themeList" role="listbox">
-            <button type="button" role="option" class="theme-row" data-theme="midnight" aria-selected="false">
-              <span class="theme-check" aria-hidden="true">✓</span><span class="theme-name">午夜蓝</span>
-            </button>
-            <button type="button" role="option" class="theme-row" data-theme="graphite" aria-selected="false">
-              <span class="theme-check" aria-hidden="true">✓</span><span class="theme-name">石墨灰</span>
-            </button>
-            <button type="button" role="option" class="theme-row" data-theme="ocean" aria-selected="false">
-              <span class="theme-check" aria-hidden="true">✓</span><span class="theme-name">深海青</span>
-            </button>
-            <button type="button" role="option" class="theme-row" data-theme="amber" aria-selected="false">
-              <span class="theme-check" aria-hidden="true">✓</span><span class="theme-name">琥珀棕</span>
-            </button>
-            <button type="button" role="option" class="theme-row" data-theme="paper" aria-selected="false">
-              <span class="theme-check" aria-hidden="true">✓</span><span class="theme-name">日间纸本</span>
-            </button>
+          <div class="settings-section-block">
+            <h3 class="settings-section-title">主题设置</h3>
+            <div class="theme-list" id="themeList" role="listbox" aria-label="主题">
+              <button type="button" role="option" class="theme-row" data-theme="midnight" aria-selected="false">
+                <span class="theme-check" aria-hidden="true">✓</span><span class="theme-name">午夜蓝</span>
+              </button>
+              <button type="button" role="option" class="theme-row" data-theme="graphite" aria-selected="false">
+                <span class="theme-check" aria-hidden="true">✓</span><span class="theme-name">石墨灰</span>
+              </button>
+              <button type="button" role="option" class="theme-row" data-theme="ocean" aria-selected="false">
+                <span class="theme-check" aria-hidden="true">✓</span><span class="theme-name">深海青</span>
+              </button>
+              <button type="button" role="option" class="theme-row" data-theme="amber" aria-selected="false">
+                <span class="theme-check" aria-hidden="true">✓</span><span class="theme-name">琥珀棕</span>
+              </button>
+              <button type="button" role="option" class="theme-row" data-theme="paper" aria-selected="false">
+                <span class="theme-check" aria-hidden="true">✓</span><span class="theme-name">日间纸本</span>
+              </button>
+            </div>
+          </div>
+          <div class="settings-section-block">
+            <h3 class="settings-section-title">页面切换</h3>
+            <div class="theme-list" id="spreadList" role="listbox" aria-label="单页或双页阅读">
+              <button type="button" role="option" class="theme-row spread-row" data-spread="single" aria-selected="false">
+                <span class="theme-check" aria-hidden="true">✓</span><span class="theme-name">单页阅读</span>
+              </button>
+              <button type="button" role="option" class="theme-row spread-row" data-spread="double" aria-selected="false">
+                <span class="theme-check" aria-hidden="true">✓</span><span class="theme-name">双页阅读</span>
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -252,6 +266,7 @@
     <div class="statusbar">
       <span id="fileName" class="file-name hidden">未打开文件</span>
       <span class="status-spacer"></span>
+      <span id="pageStatusHint" class="page-status-hint hidden" role="status" aria-live="polite"></span>
       <span id="bookmarkIndicator" class="bookmark-indicator hidden">
         <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2">
           <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/>

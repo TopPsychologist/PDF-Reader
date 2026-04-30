@@ -101,8 +101,8 @@ async function ensureEpubJsLib() {
 }
 
 let pdfDoc = null;
-/** 当前页的文本层实例（可选中复制），翻页前 cancel */
-let pdfTextLayerInstance = null;
+/** 当前可见页的文本层实例（可选中复制），翻页前 cancel */
+let pdfTextLayerInstances = [];
 let currentPage = 1;
 let totalPages = 0;
 let scale = 1.0;
@@ -147,6 +147,8 @@ const prevBtn = document.getElementById('prevBtn');
 const nextBtn = document.getElementById('nextBtn');
 const pageInput = document.getElementById('pageInput');
 const totalPagesEl = document.getElementById('totalPages');
+const pageVisibleHintEl = document.getElementById('pageVisibleHint');
+const pageStatusHintEl = document.getElementById('pageStatusHint');
 const zoomInBtn = document.getElementById('zoomInBtn');
 const zoomOutBtn = document.getElementById('zoomOutBtn');
 const zoomLevelEl = document.getElementById('zoomLevel');
@@ -213,6 +215,10 @@ function stripAccidentalPreloadSourceTextNodes() {
 stripAccidentalPreloadSourceTextNodes();
 
 const THEME_IDS = ['midnight', 'graphite', 'ocean', 'amber', 'paper'];
+
+/** PDF 单页 / 双页并排（仅 PDF；持久化由主进程存储） */
+const PDF_SPREAD_IDS = ['single', 'double'];
+let pdfSpreadMode = 'single';
 
 /** 书架封面：固定外壳尺寸，缩略图在盒内按比例「适应」缩放，避免窄长页面撑成条状 */
 const SHELF_COVER_BOX_CSS_W = 100;
@@ -354,6 +360,7 @@ function showPdfView() {
   fileNameEl.classList.remove('hidden');
   enablePdfControls(true);
   setReadingNavChrome(true);
+  updatePageChromeHints();
 }
 
 function showShelfView() {
@@ -373,6 +380,7 @@ function showShelfView() {
   fileNameEl.classList.add('hidden');
   enablePdfControls(false);
   setReadingNavChrome(false);
+  updatePageChromeHints();
 }
 
 function showWelcome() {
@@ -392,6 +400,7 @@ function showWelcome() {
   fileNameEl.classList.add('hidden');
   enablePdfControls(false);
   setReadingNavChrome(false);
+  updatePageChromeHints();
 }
 
 function showEpubReaderView() {
@@ -410,6 +419,7 @@ function showEpubReaderView() {
   fileNameEl.classList.remove('hidden');
   epubToolbarState();
   setReadingNavChrome(true);
+  updatePageChromeHints();
 }
 
 function epubToolbarState() {
@@ -462,9 +472,12 @@ function isCurrentPageBookmarked() {
     if (!cfi) return false;
     return currentBookmarks.some((b) => b.cfi && b.cfi === cfi);
   }
-  return currentBookmarks.some(
-    (b) => b.page != null && Number(b.page) === Number(currentPage)
-  );
+  const pagesVisible = getPdfVisiblePageNumbers();
+  return currentBookmarks.some((b) => {
+    if (b.page == null) return false;
+    const p = Number(b.page);
+    return pagesVisible.some((v) => v === p);
+  });
 }
 
 function updateBookmarkIndicator() {
@@ -481,9 +494,79 @@ function getToolbarHeight() {
   return toolbar.offsetHeight + statusbar.offsetHeight;
 }
 
+/** 当前屏幕上显示的 PDF 页码列表（双页时为 [n, n+1] 或末页仅一页） */
+function getPdfVisiblePageNumbers() {
+  if (viewerKind !== 'pdf' || !pdfDoc) return [];
+  if (pdfSpreadMode !== 'double') return [currentPage];
+  const pages = [currentPage];
+  if (currentPage + 1 <= totalPages) pages.push(currentPage + 1);
+  return pages;
+}
+
+function pdfSpreadStep() {
+  return viewerKind === 'pdf' && pdfSpreadMode === 'double' ? 2 : 1;
+}
+
+/** 工具栏旁「可见页」提示 + 状态栏页码说明（PDF / EPUB） */
+function updatePageChromeHints() {
+  if (!pageVisibleHintEl || !pageStatusHintEl) return;
+
+  if (viewerKind === 'pdf' && pdfDoc) {
+    const visible = getPdfVisiblePageNumbers();
+    let toolbar = '';
+    let status = '';
+    if (pdfSpreadMode === 'double' && visible.length === 2) {
+      toolbar = `可见 ${visible[0]}–${visible[1]} 页`;
+      status = `双页 · 可见第 ${visible[0]}–${visible[1]} 页 · 共 ${totalPages} 页`;
+    } else if (pdfSpreadMode === 'double' && visible.length === 1) {
+      toolbar = `仅第 ${visible[0]} 页`;
+      status = `双页 · 当前屏仅第 ${visible[0]} 页 · 共 ${totalPages} 页`;
+    } else {
+      toolbar = `第 ${currentPage} 页`;
+      status = `第 ${currentPage} / ${totalPages} 页`;
+    }
+    pageVisibleHintEl.textContent = toolbar;
+    pageVisibleHintEl.classList.toggle('hidden', !toolbar);
+    pageStatusHintEl.textContent = status;
+    pageStatusHintEl.classList.remove('hidden');
+    return;
+  }
+
+  pageVisibleHintEl.textContent = '';
+  pageVisibleHintEl.classList.add('hidden');
+
+  if (viewerKind === 'epub' && epubRendition) {
+    const loc = epubRendition.currentLocation?.();
+    const cur = loc?.start?.displayed?.page;
+    const total = loc?.start?.displayed?.total;
+    if (cur != null && total != null) {
+      pageStatusHintEl.textContent = `EPUB · 第 ${cur} / ${total} 页`;
+      pageStatusHintEl.classList.remove('hidden');
+    } else {
+      pageStatusHintEl.textContent = '';
+      pageStatusHintEl.classList.add('hidden');
+    }
+    return;
+  }
+
+  pageStatusHintEl.textContent = '';
+  pageStatusHintEl.classList.add('hidden');
+}
+
+function syncSpreadSelection(mode) {
+  const id = PDF_SPREAD_IDS.includes(mode) ? mode : 'single';
+  document.querySelectorAll('.spread-row').forEach((row) => {
+    const sel = row.dataset.spread === id;
+    row.classList.toggle('is-selected', sel);
+    row.setAttribute('aria-selected', sel ? 'true' : 'false');
+  });
+}
+
 function syncThemeSelection(themeId) {
   const id = THEME_IDS.includes(themeId) ? themeId : 'midnight';
-  document.querySelectorAll('.theme-row').forEach((row) => {
+  const themeList = document.getElementById('themeList');
+  if (!themeList) return;
+  themeList.querySelectorAll('.theme-row').forEach((row) => {
     const sel = row.dataset.theme === id;
     row.classList.toggle('is-selected', sel);
     row.setAttribute('aria-selected', sel ? 'true' : 'false');
@@ -501,6 +584,7 @@ function openSettings() {
   const raw = document.documentElement.getAttribute('data-theme');
   const t = THEME_IDS.includes(raw) ? raw : 'midnight';
   syncThemeSelection(t);
+  syncSpreadSelection(pdfSpreadMode);
   settingsOverlay.classList.add('visible');
   settingsOverlay.setAttribute('aria-hidden', 'false');
 }
@@ -518,6 +602,16 @@ async function initThemeFromStorage() {
   } catch (e) {
     applyThemeVisual('midnight');
   }
+}
+
+async function initPdfSpreadFromStorage() {
+  try {
+    const m = await window.electronAPI.getPdfSpreadMode();
+    pdfSpreadMode = PDF_SPREAD_IDS.includes(m) ? m : 'single';
+  } catch (e) {
+    pdfSpreadMode = 'single';
+  }
+  syncSpreadSelection(pdfSpreadMode);
 }
 
 async function loadDeferredOutline() {
@@ -542,12 +636,12 @@ async function loadPDF(data, filePath = null) {
     await ensurePdfJsLib();
 
     if (pdfDoc) {
-      if (pdfTextLayerInstance) {
+      for (const tl of pdfTextLayerInstances) {
         try {
-          pdfTextLayerInstance.cancel();
+          tl.cancel();
         } catch (_) {}
-        pdfTextLayerInstance = null;
       }
+      pdfTextLayerInstances = [];
       try {
         if (pdfjsLib?.TextLayer?.cleanup) pdfjsLib.TextLayer.cleanup();
       } catch (_) {}
@@ -634,12 +728,12 @@ async function loadEPUB(binary, filePath = null) {
     destroyEpubViewer();
 
     if (pdfDoc) {
-      if (pdfTextLayerInstance) {
+      for (const tl of pdfTextLayerInstances) {
         try {
-          pdfTextLayerInstance.cancel();
+          tl.cancel();
         } catch (_) {}
-        pdfTextLayerInstance = null;
       }
+      pdfTextLayerInstances = [];
       try {
         if (pdfjsLib?.TextLayer?.cleanup) pdfjsLib.TextLayer.cleanup();
       } catch (_) {}
@@ -698,6 +792,7 @@ async function loadEPUB(binary, filePath = null) {
         }
       }
       updateEpubPageLabel();
+      updatePageChromeHints();
       updateBookmarkIndicator();
     });
 
@@ -705,6 +800,7 @@ async function loadEPUB(binary, filePath = null) {
 
     hideLoading();
     updateEpubPageLabel();
+    updatePageChromeHints();
     epubToolbarState();
     updateBookmarkIndicator();
     statusText.textContent =
@@ -817,93 +913,122 @@ async function renderPage(pageNum) {
   try {
     await ensurePdfJsLib();
 
-    const page = await pdfDoc.getPage(pageNum);
-    const viewportBase = page.getViewport({ scale: 1 });
-
-    const containerWidth = pdfContainer.clientWidth - 40;
-    const containerHeight = pdfContainer.clientHeight - 40;
-    const toolbarHeight = getToolbarHeight();
-
-    let baseScaleFactor = scale;
-
-    if (fitMode === 'width') {
-      baseScaleFactor = containerWidth / viewportBase.width;
-    } else if (fitMode === 'height') {
-      baseScaleFactor = (containerHeight - toolbarHeight) / viewportBase.height;
-    }
-
-    const cssScale = baseScaleFactor * 0.98;
-    const dpr = getCssPixelRatio();
-    const cssViewport = page.getViewport({ scale: cssScale });
-    const renderViewport = page.getViewport({ scale: cssScale * dpr });
-
-    if (pdfTextLayerInstance) {
+    for (const tl of pdfTextLayerInstances) {
       try {
-        pdfTextLayerInstance.cancel();
+        tl.cancel();
       } catch (_) {}
-      pdfTextLayerInstance = null;
     }
+    pdfTextLayerInstances = [];
     try {
       if (pdfjsLib?.TextLayer?.cleanup) pdfjsLib.TextLayer.cleanup();
     } catch (_) {}
 
     pdfContainer.innerHTML = '';
-    // 适应宽度/高度时可滚动查看画布外的区域（长页纵向、宽页横向）
     pdfContainer.style.overflow = 'auto';
 
-    const wrapper = document.createElement('div');
-    wrapper.className = 'pdf-page-wrapper';
+    const pad = 40;
+    const availW = pdfContainer.clientWidth - pad;
+    const availH = pdfContainer.clientHeight - pad;
+    const spreadGap = 16;
+    const useDouble = pdfSpreadMode === 'double';
+    const colW = useDouble ? Math.max(120, (availW - spreadGap) / 2) : availW;
 
-    const inner = document.createElement('div');
-    inner.className = 'pdf-page-inner';
+    const pageNums =
+      useDouble && pageNum <= totalPages
+        ? pageNum + 1 <= totalPages
+          ? [pageNum, pageNum + 1]
+          : [pageNum]
+        : [pageNum];
 
-    const canvas = document.createElement('canvas');
-    canvas.className = 'pdf-page';
-    const context = canvas.getContext('2d', { alpha: false });
+    const sheetMaxW = useDouble && pageNums.length === 2 ? colW : availW;
 
-    canvas.width = Math.floor(renderViewport.width);
-    canvas.height = Math.floor(renderViewport.height);
+    async function renderOnePdfPageSheet(pn, maxWidth, maxHeight) {
+      const page = await pdfDoc.getPage(pn);
+      const viewportBase = page.getViewport({ scale: 1 });
+      const toolbarHeight = getToolbarHeight();
 
-    canvas.style.width = Math.ceil(cssViewport.width) + 'px';
-    canvas.style.height = Math.ceil(cssViewport.height) + 'px';
-
-    inner.appendChild(canvas);
-    wrapper.appendChild(inner);
-    pdfContainer.appendChild(wrapper);
-
-    await page.render({
-      canvasContext: context,
-      viewport: renderViewport
-    }).promise;
-
-    try {
-      const TextLayer = pdfjsLib.TextLayer;
-      if (typeof TextLayer === 'function') {
-        const textContent = await page.getTextContent();
-        const textLayerDiv = document.createElement('div');
-        textLayerDiv.className = 'textLayer';
-        inner.appendChild(textLayerDiv);
-
-        pdfTextLayerInstance = new TextLayer({
-          textContentSource: textContent,
-          container: textLayerDiv,
-          viewport: cssViewport
-        });
-        await pdfTextLayerInstance.render();
+      let baseScaleFactor = scale;
+      if (fitMode === 'width') {
+        baseScaleFactor = maxWidth / viewportBase.width;
+      } else if (fitMode === 'height') {
+        baseScaleFactor = (maxHeight - toolbarHeight) / viewportBase.height;
       }
-    } catch (tlErr) {
-      console.warn('PDF text layer:', tlErr);
-      pdfTextLayerInstance = null;
+
+      const cssScale = baseScaleFactor * 0.98;
+      const dpr = getCssPixelRatio();
+      const cssViewport = page.getViewport({ scale: cssScale });
+      const renderViewport = page.getViewport({ scale: cssScale * dpr });
+
+      const wrapper = document.createElement('div');
+      wrapper.className = 'pdf-page-wrapper';
+
+      const inner = document.createElement('div');
+      inner.className = 'pdf-page-inner';
+
+      const canvas = document.createElement('canvas');
+      canvas.className = 'pdf-page';
+      const context = canvas.getContext('2d', { alpha: false });
+
+      canvas.width = Math.floor(renderViewport.width);
+      canvas.height = Math.floor(renderViewport.height);
+
+      canvas.style.width = Math.ceil(cssViewport.width) + 'px';
+      canvas.style.height = Math.ceil(cssViewport.height) + 'px';
+
+      inner.appendChild(canvas);
+      wrapper.appendChild(inner);
+
+      await page.render({
+        canvasContext: context,
+        viewport: renderViewport
+      }).promise;
+
+      try {
+        const TextLayer = pdfjsLib.TextLayer;
+        if (typeof TextLayer === 'function') {
+          const textContent = await page.getTextContent();
+          const textLayerDiv = document.createElement('div');
+          textLayerDiv.className = 'textLayer';
+          inner.appendChild(textLayerDiv);
+
+          const tl = new TextLayer({
+            textContentSource: textContent,
+            container: textLayerDiv,
+            viewport: cssViewport
+          });
+          await tl.render();
+          pdfTextLayerInstances.push(tl);
+        }
+      } catch (tlErr) {
+        console.warn('PDF text layer:', tlErr);
+      }
+
+      return wrapper;
+    }
+
+    if (useDouble && pageNums.length > 1) {
+      const row = document.createElement('div');
+      row.className = 'pdf-spread-row';
+      for (const pn of pageNums) {
+        const w = await renderOnePdfPageSheet(pn, sheetMaxW, availH);
+        row.appendChild(w);
+      }
+      pdfContainer.appendChild(row);
+    } else {
+      for (const pn of pageNums) {
+        const w = await renderOnePdfPageSheet(pn, sheetMaxW, availH);
+        pdfContainer.appendChild(w);
+      }
     }
   } catch (error) {
     console.error('Error rendering page:', error);
     statusText.textContent = '页面渲染失败';
-    if (pdfTextLayerInstance) {
+    for (const tl of pdfTextLayerInstances) {
       try {
-        pdfTextLayerInstance.cancel();
+        tl.cancel();
       } catch (_) {}
-      pdfTextLayerInstance = null;
     }
+    pdfTextLayerInstances = [];
   }
 }
 
@@ -989,19 +1114,27 @@ function applyZoomPercentFromInput() {
 function updateUI() {
   if (viewerKind === 'epub') {
     updateEpubPageLabel();
+    updatePageChromeHints();
     return;
   }
   if (!pdfDoc) {
     prevBtn.disabled = true;
     nextBtn.disabled = true;
     updateZoomLevelField();
+    updatePageChromeHints();
     return;
   }
 
   prevBtn.disabled = currentPage <= 1;
-  nextBtn.disabled = currentPage >= totalPages;
+  const step = pdfSpreadStep();
+  nextBtn.disabled = currentPage + step > totalPages;
+  prevBtn.title =
+    step === 2 ? `上一屏 (← · 双页每次后退 ${step} 页)` : '上一页 (←)';
+  nextBtn.title =
+    step === 2 ? `下一屏 (→ · 双页每次前进 ${step} 页)` : '下一页 (→)';
   pageInput.value = currentPage;
   updateZoomLevelField();
+  updatePageChromeHints();
 }
 
 function updateTocButton() {
@@ -1159,19 +1292,22 @@ async function openShelfDropdown() {
       if (entry.exists === false) li.classList.add('is-missing');
       li.title = entry.path;
 
+      const rowMain = document.createElement('div');
+      rowMain.className = 'shelf-dropdown-row-main';
+
       const span = document.createElement('span');
       span.className = 'shelf-dropdown-path';
       span.textContent = entry.path;
-      li.appendChild(span);
+      rowMain.appendChild(span);
 
       if (entry.exists === false) {
         const badge = document.createElement('span');
         badge.className = 'shelf-dropdown-badge';
         badge.textContent = '不可用';
-        li.appendChild(badge);
+        rowMain.appendChild(badge);
       }
 
-      li.addEventListener('click', async (ev) => {
+      rowMain.addEventListener('click', async (ev) => {
         ev.stopPropagation();
         if (!entry.exists) {
           statusText.textContent = '该路径已不存在';
@@ -1189,6 +1325,33 @@ async function openShelfDropdown() {
         }
       });
 
+      const rmBtn = document.createElement('button');
+      rmBtn.type = 'button';
+      rmBtn.className = 'toolbar-btn shelf-dropdown-remove';
+      rmBtn.setAttribute('aria-label', '从历史记录中移除');
+      rmBtn.title = '从历史记录中移除（不删除磁盘上的文件夹）';
+      rmBtn.textContent = '×';
+
+      rmBtn.addEventListener('click', async (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        try {
+          if (typeof window.electronAPI?.removeShelfFolderFromHistory !== 'function') return;
+          const res = await window.electronAPI.removeShelfFolderFromHistory(entry.path);
+          if (res && res.ok === false) {
+            statusText.textContent = res.message || '移除失败';
+            return;
+          }
+          statusText.textContent = '已从历史记录移除';
+          if (shelfDropdownOpen) await openShelfDropdown();
+        } catch (err) {
+          console.error(err);
+          statusText.textContent = '移除失败';
+        }
+      });
+
+      li.appendChild(rowMain);
+      li.appendChild(rmBtn);
       shelfHistoryDropdownList.appendChild(li);
     });
   }
@@ -1640,23 +1803,50 @@ function setupEventListeners() {
   }
 
   void initThemeFromStorage();
+  void initPdfSpreadFromStorage();
   window.electronAPI.onThemeChanged((id) => applyThemeVisual(id));
 
   if (settingsBtn) settingsBtn.addEventListener('click', () => openSettings());
   if (closeSettingsBtn) closeSettingsBtn.addEventListener('click', closeSettings);
   if (settingsBackdrop) settingsBackdrop.addEventListener('click', closeSettings);
 
-  document.querySelectorAll('.theme-row').forEach((row) => {
-    row.addEventListener('click', async () => {
-      const id = row.dataset.theme;
-      if (!THEME_IDS.includes(id)) return;
-      try {
-        await window.electronAPI.setTheme(id);
-      } catch (e) {
-        console.error(e);
-      }
+  const themeListEl = document.getElementById('themeList');
+  if (themeListEl) {
+    themeListEl.querySelectorAll('.theme-row').forEach((row) => {
+      row.addEventListener('click', async () => {
+        const id = row.dataset.theme;
+        if (!THEME_IDS.includes(id)) return;
+        try {
+          await window.electronAPI.setTheme(id);
+        } catch (e) {
+          console.error(e);
+        }
+      });
     });
-  });
+  }
+
+  const spreadListEl = document.getElementById('spreadList');
+  if (spreadListEl) {
+    spreadListEl.querySelectorAll('.spread-row').forEach((row) => {
+      row.addEventListener('click', async () => {
+        const mode = row.dataset.spread;
+        if (!PDF_SPREAD_IDS.includes(mode)) return;
+        try {
+          await window.electronAPI.setPdfSpreadMode(mode);
+        } catch (e) {
+          console.error(e);
+          return;
+        }
+        pdfSpreadMode = mode;
+        syncSpreadSelection(mode);
+        if (pdfDoc && viewerKind === 'pdf') {
+          renderPage(currentPage).catch((err) => console.error(err));
+          updateUI();
+          updateBookmarkIndicator();
+        }
+      });
+    });
+  }
 
   const requiredRefs = [
     ['openBtn', openBtn],
@@ -1699,7 +1889,7 @@ function setupEventListeners() {
       epubRendition?.prev?.();
       return;
     }
-    goToPage(currentPage - 1);
+    goToPage(currentPage - pdfSpreadStep());
   });
 
   nextBtn.addEventListener('click', () => {
@@ -1707,7 +1897,7 @@ function setupEventListeners() {
       epubRendition?.next?.();
       return;
     }
-    goToPage(currentPage + 1);
+    goToPage(currentPage + pdfSpreadStep());
   });
 
   pageInput.addEventListener('change', (e) => {
@@ -1800,9 +1990,9 @@ function setupEventListeners() {
     if (!pdfDoc) return;
 
     if (e.key === 'ArrowLeft') {
-      goToPage(currentPage - 1);
+      goToPage(currentPage - pdfSpreadStep());
     } else if (e.key === 'ArrowRight') {
-      goToPage(currentPage + 1);
+      goToPage(currentPage + pdfSpreadStep());
     }
   });
 
