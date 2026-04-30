@@ -19,13 +19,18 @@
         <span>打开</span>
       </button>
 
-      <button id="shelfBtn" class="toolbar-btn">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
-          <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
-        </svg>
-        <span>书架</span>
-      </button>
+      <div id="toolbarShelfWrap" class="toolbar-shelf-wrap">
+        <button id="shelfBtn" class="toolbar-btn" type="button" aria-haspopup="listbox" aria-expanded="false" title="历史书架路径">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
+            <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
+          </svg>
+          <span>书架</span>
+        </button>
+        <div id="shelfHistoryDropdown" class="shelf-history-dropdown" hidden role="presentation">
+          <ul id="shelfHistoryDropdownList" class="shelf-history-dropdown-list" role="listbox" aria-label="历史书架路径"></ul>
+        </div>
+      </div>
 
       <button id="backToShelfBtn" class="toolbar-btn hidden">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -143,21 +148,13 @@
           </svg>
           <p class="drop-zone-text">将 PDF 文件拖放到这里</p>
           <p class="drop-zone-subtext">或点击上面的「打开」按钮（支持 PDF、EPUB）</p>
-          <p class="drop-zone-subtext">点击"书架"按钮选择文件夹作为书架</p>
+          <p class="drop-zone-subtext">点击「书架」可从下拉列表切换历史书架路径</p>
         </div>
       </div>
 
       <div id="shelfView" class="shelf-view">
         <div class="shelf-header">
           <h2 id="shelfTitle">书架</h2>
-          <button id="changeFolderBtn" class="toolbar-btn">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M23 4v6h-6"/>
-              <path d="M1 20v-6h6"/>
-              <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
-            </svg>
-            <span>更换文件夹</span>
-          </button>
         </div>
         <div id="shelfGrid" class="shelf-grid"></div>
         <div id="shelfEmpty" class="shelf-empty">

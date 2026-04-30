@@ -43,6 +43,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('remove-bookmark', filePath, bookmarkId),
   getAllBookmarks: () => ipcRenderer.invoke('get-all-bookmarks'),
   getShelfFolder: () => ipcRenderer.invoke('get-shelf-folder'),
+  /** 历史书架路径列表（含是否存在） */
+  getShelfFolderHistory: () => ipcRenderer.invoke('get-shelf-folder-history'),
+  /** 切换到已有路径作为当前书架 */
+  switchShelfFolder: (folderPath) => ipcRenderer.invoke('switch-shelf-folder', folderPath),
   getTheme: () => ipcRenderer.invoke('get-theme'),
   setTheme: (themeId) => ipcRenderer.invoke('set-theme', themeId),
   /** 阅读书籍时为 true，用于隐藏工具栏「打开 / 书架」并同步应用菜单 */

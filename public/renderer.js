@@ -101,6 +101,8 @@ async function ensureEpubJsLib() {
 }
 
 let pdfDoc = null;
+/** 当前页的文本层实例（可选中复制），翻页前 cancel */
+let pdfTextLayerInstance = null;
 let currentPage = 1;
 let totalPages = 0;
 let scale = 1.0;
@@ -111,6 +113,11 @@ let currentToc = [];
 let isLoading = false;
 let savePositionTimer = null;
 let currentShelfFiles = [];
+/** 当前书架根路径（用于历史列表高亮） */
+let currentShelfFolderPath = null;
+
+/** 工具栏「书架」下拉是否展开 */
+let shelfDropdownOpen = false;
 
 /** 当前阅读器：none / pdf / epub */
 let viewerKind = 'none';
@@ -132,8 +139,10 @@ const shelfTitle = document.getElementById('shelfTitle');
 const shelfEmpty = document.getElementById('shelfEmpty');
 const openBtn = document.getElementById('openBtn');
 const shelfBtn = document.getElementById('shelfBtn');
+const toolbarShelfWrap = document.getElementById('toolbarShelfWrap');
+const shelfHistoryDropdown = document.getElementById('shelfHistoryDropdown');
+const shelfHistoryDropdownList = document.getElementById('shelfHistoryDropdownList');
 const backToShelfBtn = document.getElementById('backToShelfBtn');
-const changeFolderBtn = document.getElementById('changeFolderBtn');
 const prevBtn = document.getElementById('prevBtn');
 const nextBtn = document.getElementById('nextBtn');
 const pageInput = document.getElementById('pageInput');
@@ -533,6 +542,15 @@ async function loadPDF(data, filePath = null) {
     await ensurePdfJsLib();
 
     if (pdfDoc) {
+      if (pdfTextLayerInstance) {
+        try {
+          pdfTextLayerInstance.cancel();
+        } catch (_) {}
+        pdfTextLayerInstance = null;
+      }
+      try {
+        if (pdfjsLib?.TextLayer?.cleanup) pdfjsLib.TextLayer.cleanup();
+      } catch (_) {}
       pdfDoc.destroy();
       pdfDoc = null;
     }
@@ -616,6 +634,15 @@ async function loadEPUB(binary, filePath = null) {
     destroyEpubViewer();
 
     if (pdfDoc) {
+      if (pdfTextLayerInstance) {
+        try {
+          pdfTextLayerInstance.cancel();
+        } catch (_) {}
+        pdfTextLayerInstance = null;
+      }
+      try {
+        if (pdfjsLib?.TextLayer?.cleanup) pdfjsLib.TextLayer.cleanup();
+      } catch (_) {}
       pdfDoc.destroy();
       pdfDoc = null;
     }
@@ -810,12 +837,25 @@ async function renderPage(pageNum) {
     const cssViewport = page.getViewport({ scale: cssScale });
     const renderViewport = page.getViewport({ scale: cssScale * dpr });
 
+    if (pdfTextLayerInstance) {
+      try {
+        pdfTextLayerInstance.cancel();
+      } catch (_) {}
+      pdfTextLayerInstance = null;
+    }
+    try {
+      if (pdfjsLib?.TextLayer?.cleanup) pdfjsLib.TextLayer.cleanup();
+    } catch (_) {}
+
     pdfContainer.innerHTML = '';
     // 适应宽度/高度时可滚动查看画布外的区域（长页纵向、宽页横向）
     pdfContainer.style.overflow = 'auto';
 
     const wrapper = document.createElement('div');
     wrapper.className = 'pdf-page-wrapper';
+
+    const inner = document.createElement('div');
+    inner.className = 'pdf-page-inner';
 
     const canvas = document.createElement('canvas');
     canvas.className = 'pdf-page';
@@ -827,16 +867,43 @@ async function renderPage(pageNum) {
     canvas.style.width = Math.ceil(cssViewport.width) + 'px';
     canvas.style.height = Math.ceil(cssViewport.height) + 'px';
 
-    wrapper.appendChild(canvas);
+    inner.appendChild(canvas);
+    wrapper.appendChild(inner);
     pdfContainer.appendChild(wrapper);
 
     await page.render({
       canvasContext: context,
       viewport: renderViewport
     }).promise;
+
+    try {
+      const TextLayer = pdfjsLib.TextLayer;
+      if (typeof TextLayer === 'function') {
+        const textContent = await page.getTextContent();
+        const textLayerDiv = document.createElement('div');
+        textLayerDiv.className = 'textLayer';
+        inner.appendChild(textLayerDiv);
+
+        pdfTextLayerInstance = new TextLayer({
+          textContentSource: textContent,
+          container: textLayerDiv,
+          viewport: cssViewport
+        });
+        await pdfTextLayerInstance.render();
+      }
+    } catch (tlErr) {
+      console.warn('PDF text layer:', tlErr);
+      pdfTextLayerInstance = null;
+    }
   } catch (error) {
     console.error('Error rendering page:', error);
     statusText.textContent = '页面渲染失败';
+    if (pdfTextLayerInstance) {
+      try {
+        pdfTextLayerInstance.cancel();
+      } catch (_) {}
+      pdfTextLayerInstance = null;
+    }
   }
 }
 
@@ -1038,6 +1105,7 @@ function stripMarkup(s) {
 /** 阅读书籍时隐藏「打开」「书架」工具栏按钮，并同步系统菜单栏「文件」中的对应项 */
 function setReadingNavChrome(reading) {
   const hide = !!reading;
+  if (hide) closeShelfDropdown();
   if (openBtn) openBtn.classList.toggle('hidden', hide);
   if (shelfBtn) shelfBtn.classList.toggle('hidden', hide);
   try {
@@ -1045,6 +1113,97 @@ function setReadingNavChrome(reading) {
       void window.electronAPI.setReadingMode(hide);
     }
   } catch (_) {}
+}
+
+function shelfPathsEqual(a, b) {
+  if (a == null || b == null) return false;
+  return String(a).replace(/\\/g, '/') === String(b).replace(/\\/g, '/');
+}
+
+function syncShelfDropdownAria(open) {
+  if (!shelfBtn) return;
+  shelfBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+}
+
+function closeShelfDropdown() {
+  shelfDropdownOpen = false;
+  syncShelfDropdownAria(false);
+  if (shelfHistoryDropdown) shelfHistoryDropdown.hidden = true;
+}
+
+async function openShelfDropdown() {
+  if (!shelfHistoryDropdown || !shelfHistoryDropdownList) return;
+  shelfHistoryDropdownList.innerHTML = '';
+
+  let entries = [];
+  try {
+    if (typeof window.electronAPI?.getShelfFolderHistory === 'function') {
+      entries = await window.electronAPI.getShelfFolderHistory();
+    }
+  } catch (e) {
+    console.warn('getShelfFolderHistory', e);
+  }
+
+  if (!entries || entries.length === 0) {
+    const li = document.createElement('li');
+    li.className = 'shelf-dropdown-empty';
+    li.setAttribute('role', 'presentation');
+    li.textContent = '暂无历史书架路径';
+    shelfHistoryDropdownList.appendChild(li);
+  } else {
+    entries.forEach((entry) => {
+      const li = document.createElement('li');
+      li.className = 'shelf-dropdown-item';
+      li.setAttribute('role', 'option');
+      if (shelfPathsEqual(entry.path, currentShelfFolderPath)) li.classList.add('is-current');
+      if (entry.exists === false) li.classList.add('is-missing');
+      li.title = entry.path;
+
+      const span = document.createElement('span');
+      span.className = 'shelf-dropdown-path';
+      span.textContent = entry.path;
+      li.appendChild(span);
+
+      if (entry.exists === false) {
+        const badge = document.createElement('span');
+        badge.className = 'shelf-dropdown-badge';
+        badge.textContent = '不可用';
+        li.appendChild(badge);
+      }
+
+      li.addEventListener('click', async (ev) => {
+        ev.stopPropagation();
+        if (!entry.exists) {
+          statusText.textContent = '该路径已不存在';
+          return;
+        }
+        closeShelfDropdown();
+        try {
+          const res = await window.electronAPI.switchShelfFolder(entry.path);
+          if (res && res.ok === false) {
+            statusText.textContent = res.message || '切换书架失败';
+          }
+        } catch (err) {
+          console.error(err);
+          statusText.textContent = '切换书架失败';
+        }
+      });
+
+      shelfHistoryDropdownList.appendChild(li);
+    });
+  }
+
+  shelfHistoryDropdown.hidden = false;
+  shelfDropdownOpen = true;
+  syncShelfDropdownAria(true);
+}
+
+async function toggleShelfDropdown() {
+  if (shelfDropdownOpen) {
+    closeShelfDropdown();
+    return;
+  }
+  await openShelfDropdown();
 }
 
 function renderToc() {
@@ -1516,16 +1675,23 @@ function setupEventListeners() {
     window.electronAPI.openFileDialog();
   });
 
-  shelfBtn.addEventListener('click', () => {
-    window.electronAPI.openFolderDialog();
+  shelfBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    void toggleShelfDropdown();
   });
+
+  document.addEventListener(
+    'click',
+    (e) => {
+      if (!shelfDropdownOpen) return;
+      if (toolbarShelfWrap && toolbarShelfWrap.contains(e.target)) return;
+      closeShelfDropdown();
+    },
+    false
+  );
 
   backToShelfBtn.addEventListener('click', () => {
     showShelfView();
-  });
-
-  changeFolderBtn.addEventListener('click', () => {
-    window.electronAPI.openFolderDialog();
   });
 
   prevBtn.addEventListener('click', () => {
@@ -1597,6 +1763,10 @@ function setupEventListeners() {
   });
 
   document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && shelfDropdownOpen) {
+      closeShelfDropdown();
+      return;
+    }
     if (e.key === 'Escape' && bookmarkLabelOverlay?.classList.contains('visible')) {
       e.preventDefault();
       bookmarkLabelCancelBtn?.click();
@@ -1656,6 +1826,7 @@ function setupEventListeners() {
 
   window.electronAPI.onFolderOpened((data) => {
     if (data) {
+      currentShelfFolderPath = data.path || null;
       shelfTitle.textContent = data.name;
       renderShelfWithCovers(data.files);
       showShelfView();

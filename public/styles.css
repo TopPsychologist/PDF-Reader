@@ -122,6 +122,91 @@ html, body {
   background-color: var(--secondary-bg);
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
+  position: relative;
+  z-index: 40;
+}
+
+.toolbar-shelf-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: stretch;
+  vertical-align: middle;
+}
+
+.shelf-history-dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 200;
+  min-width: min(360px, calc(100vw - 32px));
+  max-width: min(480px, 92vw);
+  max-height: min(320px, 50vh);
+  overflow-x: hidden;
+  overflow-y: auto;
+  background-color: var(--secondary-bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.35);
+  padding: 6px 0;
+}
+
+.shelf-history-dropdown-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.shelf-dropdown-item {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 14px;
+  cursor: pointer;
+  transition: background-color 0.12s;
+}
+
+.shelf-dropdown-item:hover:not(.is-missing) {
+  background-color: var(--hover);
+}
+
+.shelf-dropdown-item.is-current {
+  background-color: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.shelf-dropdown-item.is-missing {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.shelf-dropdown-path {
+  font-size: 12px;
+  color: var(--text);
+  word-break: break-all;
+  line-height: 1.45;
+  font-family:
+    ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    Monaco,
+    Consolas,
+    monospace;
+}
+
+.shelf-dropdown-badge {
+  flex-shrink: 0;
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--hover);
+  color: var(--text-dim);
+}
+
+.shelf-dropdown-empty {
+  padding: 14px 16px;
+  font-size: 13px;
+  color: var(--text-dim);
+  line-height: 1.45;
 }
 
 .toolbar-settings-btn {
@@ -509,6 +594,56 @@ input.zoom-level:disabled {
   max-width: 100%;
   background-color: white;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+/** 画布与可选中文本层共用定位上下文 */
+.pdf-page-inner {
+  position: relative;
+  display: inline-block;
+  line-height: 0;
+  vertical-align: top;
+}
+
+.pdf-page-inner .pdf-page {
+  position: relative;
+  z-index: 1;
+  display: block;
+}
+
+/**
+ * pdf.js TextLayer：透明字形叠在画布上，鼠标拖动可选中；⌘C / Ctrl+C 复制。
+ * 样式参考 pdfjs-dist/web/pdf_viewer.css（节选）
+ */
+.textLayer {
+  position: absolute;
+  text-align: initial;
+  inset: 0;
+  overflow: clip;
+  opacity: 1;
+  line-height: 1;
+  z-index: 2;
+  transform-origin: 0 0;
+  caret-color: CanvasText;
+  -webkit-text-size-adjust: none;
+  text-size-adjust: none;
+}
+
+.textLayer :is(span, br) {
+  color: transparent;
+  position: absolute;
+  white-space: pre;
+  cursor: text;
+  transform-origin: 0 0;
+}
+
+.textLayer span[role='img'] {
+  -webkit-user-select: none;
+  user-select: none;
+  cursor: default;
+}
+
+.textLayer ::selection {
+  background: rgba(0, 120, 215, 0.35);
 }
 
 .pdf-page {

@@ -31,6 +31,7 @@ function getStorageData() {
     readingPositions: {},
     bookmarks: {},
     shelfFolder: null,
+    shelfFolderHistory: [],
     theme: 'midnight'
   };
   try {
@@ -41,7 +42,10 @@ function getStorageData() {
         ...defaults,
         ...data,
         readingPositions: data.readingPositions || {},
-        bookmarks: data.bookmarks || {}
+        bookmarks: data.bookmarks || {},
+        shelfFolderHistory: Array.isArray(data.shelfFolderHistory)
+          ? data.shelfFolderHistory
+          : []
       };
     }
   } catch (error) {
@@ -70,6 +74,21 @@ function normalizeBookmarkPath(filePath) {
 
 /** 书架支持的电子书扩展名（小写比对） */
 const SHELF_EXTENSIONS = ['.pdf', '.epub'];
+
+const MAX_SHELF_HISTORY = 30;
+
+/** 将路径记入书架历史（当前路径置顶，去重） */
+function pushShelfFolderHistory(storage, folderPath) {
+  if (typeof folderPath !== 'string' || !folderPath) return;
+  let p;
+  try {
+    p = path.normalize(folderPath);
+  } catch {
+    return;
+  }
+  const prev = Array.isArray(storage.shelfFolderHistory) ? storage.shelfFolderHistory : [];
+  storage.shelfFolderHistory = [p, ...prev.filter((x) => x !== p)].slice(0, MAX_SHELF_HISTORY);
+}
 
 function readFolderShelfFiles(folderPath) {
   const list = [];
@@ -385,11 +404,12 @@ async function openFolder() {
   });
 
   if (!result.canceled && result.filePaths.length > 0) {
-    const folderPath = result.filePaths[0];
+    const folderPath = path.normalize(result.filePaths[0]);
     const shelfFiles = readFolderShelfFiles(folderPath);
 
     const storage = getStorageData();
     storage.shelfFolder = folderPath;
+    pushShelfFolderHistory(storage, folderPath);
     saveStorageData(storage);
 
     mainWindow.webContents.send('folder-opened', {
@@ -406,6 +426,69 @@ ipcMain.handle('open-file-dialog', async () => {
 
 ipcMain.handle('open-folder-dialog', async () => {
   await openFolder();
+});
+
+ipcMain.handle('get-shelf-folder-history', async () => {
+  const storage = getStorageData();
+  let hist = Array.isArray(storage.shelfFolderHistory)
+    ? [...storage.shelfFolderHistory]
+    : [];
+  const cur = storage.shelfFolder;
+  if (cur) {
+    try {
+      const n = path.normalize(cur);
+      if (!hist.includes(n)) {
+        hist.unshift(n);
+        storage.shelfFolderHistory = hist.slice(0, MAX_SHELF_HISTORY);
+        saveStorageData(storage);
+        hist = storage.shelfFolderHistory;
+      }
+    } catch (_) {}
+  }
+  return hist.map((p) => ({
+    path: p,
+    basename: path.basename(p),
+    exists: fs.existsSync(p)
+  }));
+});
+
+ipcMain.handle('switch-shelf-folder', async (event, folderPath) => {
+  if (typeof folderPath !== 'string' || !folderPath.trim()) {
+    return { ok: false, message: '无效路径' };
+  }
+  let p;
+  try {
+    p = path.normalize(folderPath.trim());
+  } catch {
+    return { ok: false, message: '无效路径' };
+  }
+  if (!fs.existsSync(p)) {
+    return { ok: false, message: '文件夹不存在' };
+  }
+  let st;
+  try {
+    st = fs.statSync(p);
+  } catch (e) {
+    return { ok: false, message: e && e.message ? e.message : String(e) };
+  }
+  if (!st.isDirectory()) {
+    return { ok: false, message: '不是文件夹' };
+  }
+
+  const shelfFiles = readFolderShelfFiles(p);
+  const storage = getStorageData();
+  storage.shelfFolder = p;
+  pushShelfFolderHistory(storage, p);
+  saveStorageData(storage);
+
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('folder-opened', {
+      path: p,
+      name: path.basename(p),
+      files: shelfFiles
+    });
+  }
+  return { ok: true };
 });
 
 ipcMain.handle('read-pdf-file', async (event, filePath) => {
