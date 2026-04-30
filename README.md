@@ -114,6 +114,28 @@ npm run build:dir
 
 通常在 **`dist/mac/PDF Reader.app`**。
 
+### GitHub Actions 自动 Release
+
+仓库已包含 **`.github/workflows/release.yml`**：
+
+| 触发方式 | 行为 |
+|---------|------|
+| 推送符合 **`v*`** 的标签（例如 **`v1.0.0`**） | 在 `macos-latest` 上执行 **`npm ci`** → **`bundle:epub`** → **`npm run build`**，校验标签名与 **`package.json`** 的 **`version`** 一致（须为 **`v` + version**），然后将 **`dist/*.zip`** 上传到同名 **GitHub Release**，并自动生成 Release Notes。 |
+| **Actions** 里手动运行 workflow | 仅构建并上传 **Artifacts**（`pdf-reader-mac-x64-zip`），**不会**创建 Release，便于先试 CI。 |
+
+发布新版本示例：
+
+```bash
+# 先修改 package.json 的 version，提交并推送代码
+npm version patch   # 或手动编辑 version 后 git commit
+
+git tag v$(node -p "require('./package.json').version")
+git push origin main --tags
+# 若只推送标签：git push origin v1.0.1
+```
+
+仓库使用默认 **`GITHUB_TOKEN`** 即可创建 Release。若 Workflow 无权写入，请到 GitHub：**Settings → Actions → General → Workflow permissions**，勾选 **Read and write permissions**。
+
 ## 目录结构（概要）
 
 ```

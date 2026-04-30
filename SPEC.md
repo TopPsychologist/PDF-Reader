@@ -147,6 +147,7 @@
 |--------|------|
 | `electron-builder.json` | `appId`、`productName`、`mac.target`、`icon` 等 |
 | `package.json` | `build`、`build:dir`、`bundle:epub` |
+| `.github/workflows/release.yml` | 推送 **`v*`** 标签时在 GitHub Actions（macOS）打包 zip 并发布 Release；手动 **`workflow_dispatch`** 仅上传构建产物 Artifact |
 
 ## 8. 文档与图示
 
