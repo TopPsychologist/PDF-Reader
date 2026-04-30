@@ -4,9 +4,9 @@
 
 | 项目 | 说明 |
 |------|------|
-| 名称 | pdf-reader-mac |
+| 名称 | pdf-reader-mac（npm 包名）；面向用户的产物名为 **PDF Reader**，见 `electron-builder.json` `productName` |
 | 类型 | Electron 桌面应用 + 渲染进程 HTML/CSS/JS（ES Module） |
-| 核心定位 | 轻量 **PDF / EPUB** 阅读、书架聚合、大纲与阅读书签、阅读进度与界面主题记忆 |
+| 核心定位 | 轻量 **PDF / EPUB** 阅读、书架聚合、书架路径历史、大纲与阅读书签、阅读进度与界面主题记忆 |
 | 目标平台 | macOS Intel（x64），Electron 打包为 `.app`/zip |
 
 ## 2. 技术栈
@@ -38,6 +38,7 @@
 - [x] 书架目录（`open-folder-dialog` → `folder-opened`）。
 - [x] `read-pdf-file`（与书籍二进制读取共用）。
 - [x] `shelfFolder` 持久化。
+- [x] **`shelfFolderHistory`**：选用书架文件夹时写入用户数据（路径规范化、当前置顶、去重、上限约 **30** 条）；渲染进程「书架」控件下拉列出历史路径并可切换。
 - [x] 启动恢复书架（可选 `folder-opened`）。
 - [x] `read-epub-vendor-bundle`：主进程读出 EPUB vendor 捆绑文件供 Blob 后备。
 
@@ -87,6 +88,8 @@
 - [x] 书架/欢迎：精简工具栏；`#toolbarReading` 在非阅读态隐藏。
 - [x] 阅读：展开阅读工具栏；缩放输入按 PDF/EPUB 状态启用。
 - [x] 适应宽度图标：竖线 + 左右箭头；适应高度图标：横线 + 上下箭头（见 `index.html`）。
+- [x] **书签标签**：添加阅读书签时使用内置 `#bookmarkLabelOverlay` 对话框录入名称（规避 Electron 下 `window.prompt` 不可用或异常）。
+- [x] **状态栏**（`.statusbar`）：阅读态等场景显示文件名、`bookmarkIndicator`、`statusText` 等（以实现为准）。
 
 ### 3.11 应用图标与 Dock
 
@@ -96,7 +99,7 @@
 
 ```
 阅读态：[ 打开 ][ 书架 ][ 返回书架 ] │ 翻页 │ 缩放 ± │ 缩放% │ 适应宽高 │ 目录 │ 书签 │ 设置
-书架态：[ 打开 ][ 书架 ]
+书架态：[ 打开 ][ 书架（含历史路径下拉）]
 内容区：drop-zone ⇄ shelf-view ⇄ pdf-container / epub-container
 ```
 
@@ -131,6 +134,7 @@
   },
   "bookmarks": {},
   "shelfFolder": "/path/to/shelf",
+  "shelfFolderHistory": ["/path/to/shelf", "/path/to/other-shelf"],
   "theme": "midnight"
 }
 ```
@@ -144,7 +148,11 @@
 | `electron-builder.json` | `appId`、`productName`、`mac.target`、`icon` 等 |
 | `package.json` | `build`、`build:dir`、`bundle:epub` |
 
-## 8. 验收标准（增补）
+## 8. 文档与图示
+
+- **`README.md`**：含功能说明与 **`docs/screenshot.png`** 应用界面示意图引用（可按版本替换图片）。
+
+## 9. 验收标准（增补）
 
 1. 书架态仅保留打开/书架等入口；无完整阅读条。  
 2. 书架态底部不出现当前文件名。  
@@ -156,8 +164,9 @@
 8. 工具栏缩放百分比可编辑并与实际缩放一致。  
 9. `npm run bundle:epub` 后存在 `public/vendor/epub-browser.mjs`。  
 10. `icons/icon.png` 在版本库中常驻（路径 **`icons/`**，不受 **`**/build/`** 忽略）。
+11. 选用书架后 **`shelfFolderHistory`** 更新且下拉可切换到历史路径。
 
-## 9. 非目标（当前版本）
+## 10. 非目标（当前版本）
 
 - 云端同步与多端实时协作。  
 - PDF 复杂表单手写批注（以只读为主）。  

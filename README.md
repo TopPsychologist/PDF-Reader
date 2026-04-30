@@ -2,13 +2,21 @@
 
 轻量级电子书阅读器（**PDF + EPUB**），基于 Electron、PDF.js 与 Epub.js：单页/分页阅读、书架、阅读书签与进度、多套界面主题（含浅色）、应用内设置；书架支持 PDF / EPUB 封面预览；开发与打包使用 **`icons/icon.png`** 作为窗口与 Dock 图标。
 
+产品名称与打包产物一致：**PDF Reader**（`electron-builder.json` 中 `productName`）。
+
+## 应用截图
+
+以下为阅读态界面示意（午夜蓝主题，左侧为 PDF 大纲目录侧栏；实际排版随文档与窗口尺寸变化）。
+
+![PDF Reader 阅读界面示意](docs/screenshot.png)
+
 ## 功能特性
 
 ### 文件与书架
 
 - 「**打开…**」：选择单个 **`pdf` / `epub`**（系统对话框过滤）。
-- 「**书架…**」：选择文件夹作为书架；自动列出其中 **PDF / EPUB**。
-- 书架路径持久保存在用户数据文件中，下次启动可自动恢复并展示书架。
+- 「**书架…**」：选择文件夹作为书架；自动列出其中 **PDF / EPUB**。点击「书架」旁的交互可展开 **历史书架路径** 列表（近期用过的文件夹路径会置顶保存，最多约 **30** 条），便于在不重复浏览对话框的情况下切换书架。
+- 当前书架路径持久保存在用户数据文件中，下次启动可自动恢复并展示书架。
 - 拖拽 **PDF / EPUB** 到窗口或欢迎区域的放置区即可打开。
 - 书架网格支持封面缩略图（PDF 首页、EPUB 封面）；同一会话内已生成的封面画布会按需跳过重复解码。
 
@@ -44,6 +52,8 @@
 
 ### 其它
 
+- **添加阅读书签**：Electron 环境下原生 `prompt` 不可靠时，使用应用内「书签名称」对话框录入标签。
+- **状态栏**：阅读时可显示当前文件名片段与简短状态文案（如「就绪」）。
 - 阅读位置防抖保存（约 1 秒）；`electron-builder` 可打 **`.app` / zip**（x64）。
 
 ## 开发环境
@@ -108,6 +118,8 @@ npm run build:dir
 
 ```
 pdf-reader-mac/
+├── docs/
+│   └── screenshot.png   # README 用界面示意图（可按需替换为真实截图）
 ├── src/
 │   ├── main.js          # Electron 主进程（窗口、IPC、菜单、托盘/Dock）
 │   └── preload.js       # contextBridge：仅 IPC，不含 Epub 运行时对象
@@ -173,7 +185,7 @@ pdf-reader-mac/
 
 `~/Library/Application Support/pdf-reader-mac/pdf-reader-data.json`
 
-内容通常包括：**阅读位置**、各文件书签、**书架路径**、`theme`（当前主题 ID）等。
+内容通常包括：**阅读位置**、各文件书签、**当前书架路径**（`shelfFolder`）、**书架路径历史**（`shelfFolderHistory`，字符串数组）、`theme`（当前主题 ID）等。
 
 ## 构建、图标与版本库
 
