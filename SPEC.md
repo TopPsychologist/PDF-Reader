@@ -7,7 +7,7 @@
 | 名称 | pdf-reader-mac（npm 包名）；面向用户的产物名为 **PDF Reader**，见 `electron-builder.json` `productName` |
 | 类型 | Electron 桌面应用 + 渲染进程 HTML/CSS/JS（ES Module） |
 | 核心定位 | 轻量 **PDF / EPUB** 阅读、书架聚合、书架路径历史、大纲与阅读书签、阅读进度与界面主题记忆 |
-| 目标平台 | macOS Intel（x64），Electron 打包为 `.app`/zip |
+| 目标平台 | macOS Intel（x64），Electron 打包为 `.app`，分发形态含 **zip** 与 **dmg** |
 
 ## 2. 技术栈
 
@@ -147,7 +147,7 @@
 |--------|------|
 | `electron-builder.json` | `appId`、`productName`、`mac.target`、`icon` 等 |
 | `package.json` | `build`、`build:dir`、`bundle:epub` |
-| `.github/workflows/release.yml` | 推送 **`v*`** 标签时在 GitHub Actions（macOS）打包 zip 并发布 Release；手动 **`workflow_dispatch`** 仅上传构建产物 Artifact |
+| `.github/workflows/release.yml` | 推送 **`v*`** 标签时在 GitHub Actions（macOS）打包 **zip + dmg** 并发布 Release；手动 **`workflow_dispatch`** 上传同名 Artifact |
 
 ## 8. 文档与图示
 

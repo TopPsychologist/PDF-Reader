@@ -54,7 +54,7 @@
 
 - **添加阅读书签**：Electron 环境下原生 `prompt` 不可靠时，使用应用内「书签名称」对话框录入标签。
 - **状态栏**：阅读时可显示当前文件名片段与简短状态文案（如「就绪」）。
-- 阅读位置防抖保存（约 1 秒）；`electron-builder` 可打 **`.app` / zip**（x64）。
+- 阅读位置防抖保存（约 1 秒）；`electron-builder` 可打 **`.app` / zip / dmg**（x64）。
 
 ## 开发环境
 
@@ -98,13 +98,18 @@ npm start
 
 配置见 **`electron-builder.json`**（**`icon`: `icons/icon.png`**）与 **`package.json`** 的 `scripts`。
 
-### zip
+### `npm run build`（zip + dmg）
 
 ```bash
 npm run build
 ```
 
-产出一般在 **`dist/`**（名称随版本，例如 **`PDF Reader-1.0.0-mac.zip`**）。
+产出在 **`dist/`**（名称随版本），通常为：
+
+- **`PDFReader-<version>-mac-x64.zip`**：解压后得到 **`PDF Reader.app`**（Dock 名称仍为「PDF Reader」），可拖到「应用程序」使用。  
+- **`PDFReader-<version>-mac-x64.dmg`**：挂载后将 **`PDF Reader.app`** 拖到「应用程序」文件夹即可安装。
+
+说明：**GitHub Releases** 会为每个 Release **自动生成「Source code (zip/tar.gz)」**，这是平台默认行为；下面的 **zip / dmg** 是额外上传的 **可安装的 macOS 应用包**（内含 **`PDF Reader.app`**），下载时请认准 **`PDFReader-*-mac-x64.*`** 文件名。
 
 ### 可直接运行的 .app 目录
 
@@ -120,8 +125,8 @@ npm run build:dir
 
 | 触发方式 | 行为 |
 |---------|------|
-| 推送符合 **`v*`** 的标签（例如 **`v1.0.0`**） | 在 `macos-latest` 上执行 **`npm ci`** → **`bundle:epub`** → **`npm run build`**，校验标签名与 **`package.json`** 的 **`version`** 一致（须为 **`v` + version**），然后将 **`dist/*.zip`** 上传到同名 **GitHub Release**，并自动生成 Release Notes。 |
-| **Actions** 里手动运行 workflow | 仅构建并上传 **Artifacts**（`pdf-reader-mac-x64-zip`），**不会**创建 Release，便于先试 CI。 |
+| 推送符合 **`v*`** 的标签（例如 **`v1.0.0`**） | 在 `macos-latest` 上执行 **`npm ci`** → **`bundle:epub`** → **`npm run build`**，校验标签名与 **`package.json`** 的 **`version`** 一致（须为 **`v` + version**），然后将 **`dist/*.zip`** 与 **`dist/*.dmg`** 上传到同名 **GitHub Release**，并自动生成 Release Notes。 |
+| **Actions** 里手动运行 workflow | 仅构建并上传 **Artifacts**（`pdf-reader-mac-x64`，内含 zip + dmg），**不会**创建 Release，便于先试 CI。 |
 
 发布新版本示例：
 
@@ -218,7 +223,8 @@ pdf-reader-mac/
 ## 常见问题
 
 - **EPUB 报「加载引擎」**：确认已 **`npm run bundle:epub`**，且 **`public/vendor/epub-browser.mjs`** 存在；若仍失败，可看终端 **`[read-epub-vendor-bundle]`** 与开发者工具控制台。  
-- **构建报错**：以 **`electron-builder.json`**、**`package.json`** 脚本为准；目标为 zip / dir。  
+- **构建报错**：以 **`electron-builder.json`**、**`package.json`** 脚本为准；默认 **`npm run build`** 产出 zip + dmg，`build:dir` 产出可直接运行的 `.app` 目录。  
+- **本机构建 dmg 失败（如 `hdiutil … Device not configured`）**：常见于沙箱、远程或无可用磁盘映像驱动的环境；产物优先以 **GitHub Actions** 为准。zip 一般不依赖 `hdiutil`，可先使用 **`PDFReader-*-mac-x64.zip`**。  
 - **超大 PDF**：已用进度、延后大纲、异步读盘等缓解；全量解析仍受 PDF.js 与本机性能限制。  
 - 克隆后请先 **`npm install`**，必要时 **`npm run bundle:epub`**。
 

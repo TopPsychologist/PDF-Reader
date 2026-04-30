@@ -1,6 +1,7 @@
 {
   "appId": "com.pdfreader.mac",
   "productName": "PDF Reader",
+  "artifactName": "PDFReader-${version}-mac-x64.${ext}",
   "icon": "icons/icon.png",
   "directories": {
     "output": "dist",
@@ -12,6 +13,10 @@
     "target": [
       {
         "target": "zip",
+        "arch": ["x64"]
+      },
+      {
+        "target": "dmg",
         "arch": ["x64"]
       }
     ],
